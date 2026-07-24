@@ -1,0 +1,9 @@
+domain: "eu_law"
+version: "1.0"
+nodes:
+  Article:
+    required_parent: "Recital"
+    description: "Operating provision in EU legal framework"
+  Recital:
+    required_parent: null
+    description: "Interpretive context and intent for articles"
