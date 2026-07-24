@@ -1,0 +1,13 @@
+# Python Virtual Environments & Caches
+.venv/
+__pycache__/
+*.pyc
+
+# Node/SvelteKit
+node_modules/
+.svelte-kit/
+build/
+
+# Security & Secrets
+.env
+*.pem
