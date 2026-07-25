@@ -3,6 +3,7 @@
     import NodePayload from '$lib/components/NodePayload.svelte';
     import IntegrityCard from '$lib/components/IntegrityCard.svelte';
     import EntropyCard from '$lib/components/EntropyCard.svelte';
+    import CriticCard from '$lib/components/CriticCard.svelte';
 
     interface ParentInfo {
         parent_id: string;
@@ -16,12 +17,38 @@
         parent: ParentInfo | null;
     }
 
+    interface REAMetrics {
+        raw_tokens?: number;
+        pruned_tokens?: number;
+        context_compression_ratio?: number;
+        quadratic_compute_mitigation?: number;
+        api_cost_saved_usd?: number;
+    }
+
+    interface REANode {
+        node_id: string;
+        text_content: string;
+        kl_divergence: number;
+        ontological_weight: number;
+    }
+
+    interface NeuralSIPReport {
+        auto_pilot_active: boolean;
+        predicted_sip_index: number;
+        original_length: number;
+        efficiency_gain_pct: number;
+        policy_status: string;
+    }
+
     interface CompressionResult {
         shannon_entropy: number;
         original_length: number;
         compressed_length: number;
         c2k_ratio: number;
         pruned_text: string;
+        metrics?: REAMetrics;
+        retained_nodes?: REANode[];
+        neural_sip?: NeuralSIPReport;
     }
 
     interface FanScores {
@@ -36,17 +63,27 @@
         fan_scores: FanScores;
     }
 
+    interface CriticReport {
+        is_harmonious: boolean;
+        d_js_score: number;
+        status: string;
+        threshold_used: number;
+    }
+
     // State management
     let nodeId: string = 'Article_10';
     let nodeData: NodeProvenance | null = null;
     let compressionData: CompressionResult | null = null;
     let integrityData: IntegrityReport | null = null;
+    let criticData: CriticReport | null = null;
     
     let confidenceThreshold: number = 0.85;
+    let autoPilotActive: boolean = false;
 
     let isLoading: boolean = false;
     let isCompressing: boolean = false;
     let isValidating: boolean = false;
+    let isProbing: boolean = false;
     let errorMessage: string | null = null;
 
     async function fetchProvenance() {
@@ -55,7 +92,8 @@
         isLoading = true;
         errorMessage = null;
         compressionData = null; 
-        integrityData = null; // Clear previous validation state
+        integrityData = null; 
+        criticData = null; 
 
         try {
             const response = await fetch(`http://127.0.0.1:8000/api/v1/graph/node/${encodeURIComponent(nodeId.trim())}`);
@@ -78,21 +116,78 @@
         
         isCompressing = true;
         errorMessage = null;
-        integrityData = null; // <-- ADDED: Clear previous PIG validation state
+        integrityData = null; 
 
         try {
-            const response = await fetch('http://127.0.0.1:8000/api/v1/compress', {
+            // 1. Run standard entropy compression first to obtain baseline entropy
+            const compResponse = await fetch('http://127.0.0.1:8000/api/v1/compress', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text_content: nodeData.text_content })
+                body: JSON.stringify({ 
+                    node_id: nodeData.node_id,
+                    text_content: nodeData.text_content,
+                    labels: nodeData.labels 
+                })
             });
             
-            if (!response.ok) throw new Error(`Compression failed with HTTP ${response.status}`);
-            compressionData = await response.json();
+            if (!compResponse.ok) throw new Error(`Compression failed with HTTP ${compResponse.status}`);
+            const compResult: CompressionResult = await compResponse.json();
+
+            // 2. If Auto-Pilot is active, query the Neural Phase-Gate controller endpoint
+            let neuralReport: NeuralSIPReport | undefined = undefined;
+            if (autoPilotActive) {
+                const neuralResponse = await fetch('http://127.0.0.1:8000/api/v1/neural/sip-prediction', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text_content: nodeData.text_content,
+                        shannon_entropy: compResult.shannon_entropy,
+                        confidence_threshold: confidenceThreshold
+                    })
+                });
+                if (neuralResponse.ok) {
+                    neuralReport = await neuralResponse.json();
+                }
+            }
+
+            // 3. Bind everything together into compressionData state
+            compressionData = {
+                ...compResult,
+                neural_sip: neuralReport
+            };
+
         } catch (err: any) {
             errorMessage = err.message || 'Failed to execute entropy audit.';
         } finally {
             isCompressing = false;
+        }
+    }
+
+    async function runCriticProbe() {
+        if (!nodeData || !nodeData.text_content) return;
+
+        isProbing = true;
+        errorMessage = null;
+
+        try {
+            const response = await fetch('http://127.0.0.1:8000/api/v1/critic/probe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    target_node_id: nodeData.node_id,
+                    target_text: nodeData.text_content,
+                    parent_node_id: nodeData.parent ? nodeData.parent.parent_id : null,
+                    parent_text: nodeData.parent ? nodeData.parent.parent_content : null,
+                    js_threshold: 0.6
+                })
+            });
+
+            if (!response.ok) throw new Error(`Critic probe failed with HTTP ${response.status}`);
+            criticData = await response.json();
+        } catch (err: any) {
+            errorMessage = err.message || 'Failed to execute ontological critic probe.';
+        } finally {
+            isProbing = false;
         }
     }
 
@@ -144,12 +239,15 @@
         <Sidebar 
             bind:nodeId={nodeId}
             bind:confidenceThreshold={confidenceThreshold}
+            bind:autoPilotActive={autoPilotActive}
             hasNodeData={!!nodeData}
             isLoading={isLoading}
             isCompressing={isCompressing}
             isValidating={isValidating}
+            isProbing={isProbing}
             on:fetch={fetchProvenance}
             on:compress={runCompression}
+            on:probe={runCriticProbe}
             on:validate={runIntegrityGate}
         />
 
@@ -166,6 +264,10 @@
                     
                     {#if integrityData}
                         <IntegrityCard {integrityData} />
+                    {/if}
+
+                    {#if criticData}
+                        <CriticCard {criticData} />
                     {/if}
 
                     <NodePayload 
