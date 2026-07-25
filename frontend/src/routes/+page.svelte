@@ -70,7 +70,8 @@
         threshold_used: number;
     }
 
-    // State management
+    // State management & Session Tracking for DREPT Telemetry
+    let sessionId: string = 'session_' + Math.random().toString(36).substring(2, 9);
     let nodeId: string = 'Article_10';
     let nodeData: NodeProvenance | null = null;
     let compressionData: CompressionResult | null = null;
@@ -79,12 +80,31 @@
     
     let confidenceThreshold: number = 0.85;
     let autoPilotActive: boolean = false;
+    let evaluationMode: string = 'Visual_Trust_Mode';
 
     let isLoading: boolean = false;
     let isCompressing: boolean = false;
     let isValidating: boolean = false;
     let isProbing: boolean = false;
     let errorMessage: string | null = null;
+
+    // Helper function to dispatch HCI telemetry events to FastAPI
+    async function logTelemetry(eventType: string, metadata: Record<string, any> = {}) {
+        try {
+            await fetch('http://127.0.0.1:8000/api/v1/telemetry/log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    event_type: eventType,
+                    mode: evaluationMode,
+                    metadata: metadata
+                })
+            });
+        } catch (e) {
+            console.warn('Telemetry transmission failed:', e);
+        }
+    }
 
     async function fetchProvenance() {
         if (!nodeId.trim()) return;
@@ -103,6 +123,7 @@
             }
 
             nodeData = await response.json();
+            logTelemetry('fetch_provenance', { node_id: nodeId.trim() });
         } catch (err: any) {
             errorMessage = err.message || 'Failed to fetch provenance data from backend.';
             nodeData = null;
@@ -119,7 +140,6 @@
         integrityData = null; 
 
         try {
-            // 1. Run standard entropy compression first to obtain baseline entropy
             const compResponse = await fetch('http://127.0.0.1:8000/api/v1/compress', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -133,7 +153,6 @@
             if (!compResponse.ok) throw new Error(`Compression failed with HTTP ${compResponse.status}`);
             const compResult: CompressionResult = await compResponse.json();
 
-            // 2. If Auto-Pilot is active, query the Neural Phase-Gate controller endpoint
             let neuralReport: NeuralSIPReport | undefined = undefined;
             if (autoPilotActive) {
                 const neuralResponse = await fetch('http://127.0.0.1:8000/api/v1/neural/sip-prediction', {
@@ -150,12 +169,12 @@
                 }
             }
 
-            // 3. Bind everything together into compressionData state
             compressionData = {
                 ...compResult,
                 neural_sip: neuralReport
             };
 
+            logTelemetry('run_entropy_audit', { auto_pilot: autoPilotActive, c2k_ratio: compResult.c2k_ratio });
         } catch (err: any) {
             errorMessage = err.message || 'Failed to execute entropy audit.';
         } finally {
@@ -184,6 +203,7 @@
 
             if (!response.ok) throw new Error(`Critic probe failed with HTTP ${response.status}`);
             criticData = await response.json();
+            logTelemetry('run_critic_probe', { d_js_score: criticData?.d_js_score });
         } catch (err: any) {
             errorMessage = err.message || 'Failed to execute ontological critic probe.';
         } finally {
@@ -209,11 +229,22 @@
             
             if (!response.ok) throw new Error(`Validation failed with HTTP ${response.status}`);
             integrityData = await response.json();
+            logTelemetry('run_integrity_gate', { is_valid: integrityData?.is_valid, threshold: confidenceThreshold });
         } catch (err: any) {
             errorMessage = err.message || 'Failed to execute integrity gate.';
         } finally {
             isValidating = false;
         }
+    }
+
+    function handleCalibration(event: CustomEvent<{ threshold: number }>) {
+        confidenceThreshold = event.detail.threshold;
+        logTelemetry('slider_calibration', { new_threshold: confidenceThreshold });
+    }
+
+    function handleModeSwitch(event: CustomEvent<{ mode: string }>) {
+        evaluationMode = event.detail.mode;
+        logTelemetry('ab_mode_switch', { active_mode: evaluationMode });
     }
 </script>
 
@@ -230,7 +261,7 @@
               <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
             </span>
-            <span class="text-emerald-400 font-medium">Semantic Firewall Active</span>
+            <span class="text-emerald-400 font-medium">Semantic Firewall Active ({evaluationMode})</span>
         </div>
     </header>
 
@@ -240,6 +271,7 @@
             bind:nodeId={nodeId}
             bind:confidenceThreshold={confidenceThreshold}
             bind:autoPilotActive={autoPilotActive}
+            bind:evaluationMode={evaluationMode}
             hasNodeData={!!nodeData}
             isLoading={isLoading}
             isCompressing={isCompressing}
@@ -249,6 +281,8 @@
             on:compress={runCompression}
             on:probe={runCriticProbe}
             on:validate={runIntegrityGate}
+            on:calibrate={handleCalibration}
+            on:toggleMode={handleModeSwitch}
         />
 
         <!-- Main Visualization Display -->
@@ -262,12 +296,18 @@
             {#if nodeData}
                 <div class="max-w-3xl mx-auto flex flex-col">
                     
-                    {#if integrityData}
-                        <IntegrityCard {integrityData} />
-                    {/if}
+                    {#if evaluationMode === 'Visual_Trust_Mode'}
+                        {#if integrityData}
+                            <IntegrityCard {integrityData} />
+                        {/if}
 
-                    {#if criticData}
-                        <CriticCard {criticData} />
+                        {#if criticData}
+                            <CriticCard {criticData} />
+                        {/if}
+                    {:else}
+                        <div class="p-4 mb-6 bg-gray-900 border border-gray-800 rounded-xl text-center text-xs font-mono text-gray-400">
+                            [ OPAQUE RAG MODE ACTIVE: Visual Trust Layer elements and provenance cards suppressed for ablation testing ]
+                        </div>
                     {/if}
 
                     <NodePayload 

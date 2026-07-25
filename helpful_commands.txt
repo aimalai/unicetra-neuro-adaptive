@@ -8,3 +8,22 @@ uvicorn main:app --reload
 FRONTEND
 
 npm run dev
+
+-----
+
+How and Where to View the Telemetry Data
+As you interact with your app (e.g., toggling between Visual Trust Mode and Opaque RAG Mode, moving the Steerability Slider, running entropy audits, or checking PIG windows), every event is automatically serialized and pushed via HTTP POST to the backend telemetry log.
+
+You can inspect and export these logs using either of these methods:
+
+Via Your Browser or REST Client:
+Open a new browser tab or run a curl command against your running FastAPI server to view the entire recorded dataset formatted as JSON:
+
+Plaintext
+http://127.0.0.1:8000/api/v1/telemetry/export
+This returns an endpoint response containing your total_records and an array of timestamped logs capturing user behavior for your thesis statistical evaluation (ANOVA / t-tests).
+
+Via the FastAPI Terminal:
+You can also check your backend console logs where Uvicorn records incoming requests to /api/v1/telemetry/log.
+
+----

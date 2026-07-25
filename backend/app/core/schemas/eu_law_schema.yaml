@@ -1,9 +1,16 @@
-domain: "eu_law"
-version: "1.0"
-nodes:
-  Article:
-    required_parent: "Recital"
-    description: "Operating provision in EU legal framework"
-  Recital:
-    required_parent: null
-    description: "Interpretive context and intent for articles"
+domain: "European Union Regulatory Compliance"
+target_legislation: "EU AI Act & Digital Services Act (DSA)"
+hierarchy:
+  root_node: "Regulation"
+  primary_provision:
+    name: "Article"
+    description: "Binding operational rules and legal requirements."
+    min_degree_centrality: 0.75
+  interpretive_context:
+    name: "Recital"
+    description: "Preamble clauses providing legal context and interpretative intent."
+    child_association: "Article"
+  enforcement_standard:
+    name: "Sanction_Clause"
+    description: "Penalties, fines, and market surveillance oversight."
+    required_parent: "Article"

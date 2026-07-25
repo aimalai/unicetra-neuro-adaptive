@@ -9,16 +9,38 @@
     export let isValidating: boolean;
     export let isProbing: boolean;
     
-    // Algorithmic Calibration & Neural Auto-Pilot State
+    // Algorithmic Calibration, Neural Auto-Pilot, & A/B Testing State
     export let confidenceThreshold: number = 0.85;
     export let autoPilotActive: boolean = false;
+    export let evaluationMode: string = 'Visual_Trust_Mode'; // 'Visual_Trust_Mode' or 'Opaque_RAG_Mode'
 
     function handleSliderChange() {
         dispatch('calibrate', { threshold: confidenceThreshold });
     }
+
+    function handleModeToggle() {
+        dispatch('toggleMode', { mode: evaluationMode });
+    }
 </script>
 
 <aside class="w-72 border-r border-gray-800 bg-gray-900/50 p-6 flex flex-col gap-6 overflow-y-auto">
+    <!-- A/B Testing Ablation Toggle -->
+    <div class="bg-indigo-950/30 border border-indigo-900/40 rounded-lg p-3">
+        <div class="flex items-center justify-between mb-2">
+            <h2 class="text-[11px] font-bold text-indigo-300 uppercase tracking-wider">A/B Evaluation Mode</h2>
+        </div>
+        <select 
+            bind:value={evaluationMode} 
+            on:change={handleModeToggle}
+            class="w-full bg-gray-950 border border-indigo-800/60 rounded px-2 py-1.5 text-xs text-indigo-200 focus:outline-none focus:border-indigo-500 font-mono"
+        >
+            <option value="Visual_Trust_Mode">Visual Trust Mode (Full PIG/D3)</option>
+            <option value="Opaque_RAG_Mode">Opaque RAG Mode (Black-Box)</option>
+        </select>
+    </div>
+
+    <hr class="border-gray-800" />
+
     <div>
         <h2 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Graph Retrieval</h2>
         <div class="flex flex-col gap-2">
@@ -45,7 +67,7 @@
 
     <hr class="border-gray-800" />
 
-    <!-- Steerability & Neural Phase-Gate Controller (Moved upstream to govern subsequent operations) -->
+    <!-- Steerability & Neural Phase-Gate Controller -->
     <div>
         <div class="flex items-center justify-between mb-3">
             <h2 class="text-xs font-bold text-gray-500 uppercase tracking-wider">Steerability & RL</h2>
@@ -97,7 +119,6 @@
 
     <hr class="border-gray-800" />
 
-    <!-- Ontological Critic (RCP) -->
     <div>
         <h2 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Ontological Critic</h2>
         <button 

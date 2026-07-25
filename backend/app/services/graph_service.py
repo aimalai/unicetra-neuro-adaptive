@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, List
 from neo4j.exceptions import Neo4jError, ServiceUnavailable
 from app.core.neo4j import neo4j_connector
 
@@ -48,5 +48,40 @@ def fetch_node_with_provenance(node_id: str) -> Dict[str, Any]:
             }
             
     except (ServiceUnavailable, Neo4jError, Exception):
-        # Graceful fallback when Neo4j container/server is not active locally
         return fallback_mock
+
+
+def initialize_vector_index():
+    try:
+        driver = neo4j_connector.get_driver()
+        with driver.session() as session:
+            session.run("""
+                CREATE VECTOR INDEX chunkEmbedding IF NOT EXISTS
+                FOR (n:Article) ON (n.embedding)
+                OPTIONS {indexConfig: { `vector.dimensions`: 1536, `vector.similarity_function`: 'cosine' }}
+            """)
+    except Exception:
+        pass
+
+
+def save_chunks_to_neo4j(validated_nodes: List[Dict[str, Any]]):
+    """
+    Persists validated nodes into Neo4j graph storage.
+    """
+    initialize_vector_index()
+    try:
+        driver = neo4j_connector.get_driver()
+        with driver.session() as session:
+            session.execute_write(_insert_chunks_transaction, validated_nodes)
+    except Exception as e:
+        print(f"Neo4j persistence warning (running in standalone mock mode if offline): {e}")
+
+
+def _insert_chunks_transaction(tx, nodes):
+    query = """
+    UNWIND $nodes AS row
+    MERGE (n:Article {node_id: row.node_id})
+    SET n.text_content = row.text_content,
+        n.node_type = row.node_type
+    """
+    tx.run(query, nodes=nodes)

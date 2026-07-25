@@ -1,13 +1,16 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
-from app.services.schema_mapper import dynamic_models
 from app.services.graph_service import fetch_node_with_provenance
 from app.models.graph import NodeProvenanceResponse
 from app.services.pig_validator import evaluate_3_fan_window, IntegrityReport
 from app.services.rea_auditor import execute_recursive_entropy_audit, calculate_shannon_entropy
 from app.services.ontological_critic import run_recursive_contradiction_probe
+
+from app.services.telemetry_service import TelemetryEventPayload, record_telemetry_event, export_telemetry_dataset
+from app.services.schema_mapper import schema_loader
+from app.services.ingestion_controller import ingestion_controller
 
 # Import the new Neural Controller service
 from app.services.neural_controller import predict_sufficient_information_point, apply_rlhf_threshold_tuning
@@ -77,11 +80,27 @@ async def system_status():
 
 @api_router.get("/schemas", tags=["Schema Management"])
 async def get_active_schemas():
-    schema_definitions = {
-        name: model.model_json_schema() 
-        for name, model in dynamic_models.items()
-    }
-    return {"active_schemas": schema_definitions}
+    """
+    Exposes the active YAML compliance schema definitions loaded dynamically.
+    """
+    return {"active_schema": schema_loader.schema_definition}
+
+@api_router.post("/ingest/document", tags=["Universal Ingestion Pipeline"])
+async def ingest_enterprise_document(
+    file: UploadFile = File(...),
+    node_type: str = Form("Article")
+):
+    """
+    Zero-Touch Commercial Ingestion: Accepts any enterprise document (PDF, DOCX, HTML),
+    parses it via format-agnostic extraction, validates it against the active YAML schema,
+    and prepares it for Neo4j structural and vector indexing.
+    """
+    file_path = ingestion_controller.parser.upload_dir / file.filename
+    with open(file_path, "wb") as buffer:
+        buffer.write(await file.read())
+
+    result = ingestion_controller.process_and_validate_document(str(file_path), node_type)
+    return result
 
 @api_router.post("/compress", response_model=REACompressResult, tags=["Semantic Auditing"])
 async def run_context_compression(payload: REACompressPayload):
@@ -146,4 +165,41 @@ async def run_neural_sip_prediction(payload: NeuralSIPPayload):
     tags=["Graph Retrieval"]
 )
 async def get_node_provenance(node_id: str):
-    return fetch_node_with_provenance(node_id)
+    """
+    Fetches node provenance from Neo4j and dynamically validates 
+    its structure against the active YAML compliance schema.
+    """
+    provenance_data = fetch_node_with_provenance(node_id)
+    
+    node_type = "Article"
+    if provenance_data.labels and len(provenance_data.labels) > 0:
+        node_type = provenance_data.labels[0]
+        
+    DynamicModel = schema_loader.generate_dynamic_model(node_type)
+    
+    validated_payload = {
+        "node_id": provenance_data.node_id,
+        "text_content": provenance_data.text_content,
+        "node_type": node_type
+    }
+    if provenance_data.parent:
+        validated_payload["parent_id"] = provenance_data.parent.parent_id
+        validated_payload["parent_content"] = provenance_data.parent.parent_content
+
+    DynamicModel(**validated_payload)
+    
+    return provenance_data
+
+@api_router.post("/telemetry/log", tags=["Telemetry & Evaluation"])
+async def log_hci_event(payload: TelemetryEventPayload):
+    """
+    Logs Human-Computer Interaction (HCI) events for DREPT empirical validation.
+    """
+    return record_telemetry_event(payload)
+
+@api_router.get("/telemetry/export", tags=["Telemetry & Evaluation"])
+async def get_telemetry_export():
+    """
+    Exports accumulated HCI telemetry logs for statistical analysis.
+    """
+    return export_telemetry_dataset()
