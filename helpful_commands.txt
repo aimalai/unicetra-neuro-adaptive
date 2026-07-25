@@ -4,3 +4,7 @@ cd C:\Users\Samsa\.vscode\coding\unicetra-neuro-adaptive\backend
 .\.venv\Scripts\Activate.ps1
 
 uvicorn main:app --reload
+
+FRONTEND
+
+npm run dev

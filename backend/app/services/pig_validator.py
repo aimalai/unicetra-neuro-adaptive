@@ -1,16 +1,15 @@
 from pydantic import BaseModel
-from typing import Dict, Tuple
+from typing import Dict
 
 class IntegrityReport(BaseModel):
     is_valid: bool
     honest_ignorance_triggered: bool
     fan_scores: Dict[str, float]
 
-def evaluate_3_fan_window(text_payload: str) -> IntegrityReport:
+def evaluate_3_fan_window(text_payload: str, threshold: float = 0.85) -> IntegrityReport:
     """
     Evaluates text through a 3-Fan Window (Surprisal, Structural, Positional).
-    If factual validation fails thresholds, the system defaults to Honest Ignorance 
-    rather than allowing post-hoc rationalizations.
+    The threshold is dynamically steered by the human-in-the-loop UI.
     """
     if not text_payload:
         return IntegrityReport(
@@ -20,12 +19,9 @@ def evaluate_3_fan_window(text_payload: str) -> IntegrityReport:
         )
 
     # Mock evaluation logic for the 3-Fan Window metrics
-    # In production, these would interface with local alignment models
-    surprisal_score = 0.88  # Checks for semantic drift / expected token probability
-    structural_score = 0.95 # Validates syntactic and formatting integrity
-    positional_score = 0.82 # Verifies provenance tracking and topological placement
-    
-    threshold = 0.80
+    surprisal_score = 0.88  
+    structural_score = 0.95 
+    positional_score = 0.82 
     
     scores = {
         "surprisal": surprisal_score,
@@ -33,7 +29,7 @@ def evaluate_3_fan_window(text_payload: str) -> IntegrityReport:
         "positional": positional_score
     }
     
-    # If any fan falls below the threshold, the gate locks
+    # If any fan falls below the dynamically steered threshold, the gate locks
     is_valid = all(score >= threshold for score in scores.values())
     
     return IntegrityReport(

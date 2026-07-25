@@ -15,6 +15,7 @@ api_router = APIRouter()
 
 class ValidationPayload(BaseModel):
     text_content: str
+    threshold: float = 0.85  # Add the threshold to the Pydantic schema
 
 def calculate_entropy(text: str) -> float:
     if not text:
@@ -62,7 +63,8 @@ async def run_integrity_gate(payload: ValidationPayload):
     """
     Enforces Parametric Integrity Gating (PIG) via a 3-Fan Window.
     """
-    return evaluate_3_fan_window(payload.text_content)
+    # Pass the dynamic threshold to the validator
+    return evaluate_3_fan_window(payload.text_content, payload.threshold)
 
 @api_router.get(
     "/graph/node/{node_id}", 
