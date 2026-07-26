@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
-from app.services.graph_service import fetch_node_with_provenance
+from app.services.graph_service import fetch_node_with_provenance, search_graph_by_query
 from app.models.graph import NodeProvenanceResponse
 from app.services.pig_validator import evaluate_3_fan_window, IntegrityReport
 from app.services.rea_auditor import execute_recursive_entropy_audit, calculate_shannon_entropy
@@ -12,7 +12,7 @@ from app.services.telemetry_service import TelemetryEventPayload, record_telemet
 from app.services.schema_mapper import schema_loader
 from app.services.ingestion_controller import ingestion_controller
 
-# Import the new Neural Controller service
+# Import the Neural Controller service
 from app.services.neural_controller import predict_sufficient_information_point, apply_rlhf_threshold_tuning
 
 api_router = APIRouter()
@@ -61,7 +61,6 @@ class CriticReport(BaseModel):
     status: str
     threshold_used: float
 
-# Payloads for the Neural Phase-Gate Controller
 class NeuralSIPPayload(BaseModel):
     text_content: str
     shannon_entropy: float
@@ -74,6 +73,10 @@ class NeuralSIPReport(BaseModel):
     efficiency_gain_pct: float
     policy_status: str
 
+class GraphSearchPayload(BaseModel):
+    query: str
+    limit: int = 5
+
 @api_router.get("/status", tags=["System Health"])
 async def system_status():
     return {"message": "Occo AI Semantic Firewall is online and routing correctly."}
@@ -81,7 +84,7 @@ async def system_status():
 @api_router.get("/schemas", tags=["Schema Management"])
 async def get_active_schemas():
     """
-    Exposes the active YAML compliance schema definitions loaded dynamically.
+    Exposes active YAML compliance schema definitions loaded dynamically.
     """
     return {"active_schema": schema_loader.schema_definition}
 
@@ -142,7 +145,7 @@ async def run_integrity_gate(payload: ValidationPayload):
 async def run_critic_probe(payload: CriticProbePayload):
     """
     Executes the Recursive Contradiction Probe (RCP) using Jensen-Shannon Divergence (D_JS)
-    to audit semantic consistency and catch logical friction at the middleware layer.
+    to audit semantic consistency.
     """
     target_node = {"node_id": payload.target_node_id, "text_content": payload.target_text}
     parent_node = {"parent_id": payload.parent_node_id, "parent_content": payload.parent_text} if payload.parent_text else None
@@ -159,6 +162,15 @@ async def run_neural_sip_prediction(payload: NeuralSIPPayload):
     report = predict_sufficient_information_point(token_len, payload.shannon_entropy, payload.confidence_threshold)
     return NeuralSIPReport(**report)
 
+@api_router.post("/graph/search", tags=["Graph Retrieval"])
+async def search_graph(payload: GraphSearchPayload):
+    """
+    Mode 1 Q&A Search Entrypoint: Performs semantic/keyword search across ingested graph chunks,
+    returning matching node IDs, text content, and their structural section headers.
+    """
+    matches = search_graph_by_query(payload.query, payload.limit)
+    return {"query": payload.query, "matches_count": len(matches), "matches": matches}
+
 @api_router.get(
     "/graph/node/{node_id}", 
     response_model=NodeProvenanceResponse, 
@@ -172,19 +184,21 @@ async def get_node_provenance(node_id: str):
     provenance_data = fetch_node_with_provenance(node_id)
     
     node_type = "Article"
-    if provenance_data.labels and len(provenance_data.labels) > 0:
-        node_type = provenance_data.labels[0]
+    labels = provenance_data.get("labels")
+    if labels and len(labels) > 0:
+        node_type = labels[0]
         
     DynamicModel = schema_loader.generate_dynamic_model(node_type)
     
     validated_payload = {
-        "node_id": provenance_data.node_id,
-        "text_content": provenance_data.text_content,
+        "node_id": provenance_data.get("node_id"),
+        "text_content": provenance_data.get("text_content"),
         "node_type": node_type
     }
-    if provenance_data.parent:
-        validated_payload["parent_id"] = provenance_data.parent.parent_id
-        validated_payload["parent_content"] = provenance_data.parent.parent_content
+    parent = provenance_data.get("parent")
+    if parent:
+        validated_payload["parent_id"] = parent.get("parent_id")
+        validated_payload["parent_content"] = parent.get("parent_content")
 
     DynamicModel(**validated_payload)
     
@@ -193,13 +207,13 @@ async def get_node_provenance(node_id: str):
 @api_router.post("/telemetry/log", tags=["Telemetry & Evaluation"])
 async def log_hci_event(payload: TelemetryEventPayload):
     """
-    Logs Human-Computer Interaction (HCI) events for DREPT empirical validation.
+    Logs HCI events for telemetry evaluation.
     """
     return record_telemetry_event(payload)
 
 @api_router.get("/telemetry/export", tags=["Telemetry & Evaluation"])
 async def get_telemetry_export():
     """
-    Exports accumulated HCI telemetry logs for statistical analysis.
+    Exports accumulated telemetry logs.
     """
     return export_telemetry_dataset()

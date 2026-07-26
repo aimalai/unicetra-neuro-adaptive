@@ -9,23 +9,34 @@ class DocumentIngestionParser:
 
     def parse_document(self, file_path: str) -> List[Dict[str, Any]]:
         """
-        Parses multi-format documents (PDFs, Word files, HTML) using the 'unstructured' library.
-        Performs semantic chunking and extracts text elements and visual table/chart bounding boxes.
+        Parses multi-format documents (PDFs, Word, HTML) using 'unstructured'.
+        Extracts text elements and tracks active layout headers to build a hierarchical tree.
         """
         path = Path(file_path)
         if not path.exists():
             raise FileNotFoundError(f"Target document {file_path} not found.")
 
-        # Utilizing unstructured partition with hi_res strategy for multimodal extraction
         elements = partition(filename=str(path), strategy="fast")
-        #elements = partition(filename=str(path), strategy="hi_res")
 
         structured_chunks = []
+        current_section = "Document Preamble"
+
         for i, element in enumerate(elements):
+            text = str(element).strip()
+            if not text:
+                continue
+
+            category = getattr(element, "category", "NarrativeText")
+
+            # Format-agnostically detect structural headers (Articles, Chapters, Titles)
+            if category in ["Title", "Header"] or text.startswith("Article ") or text.startswith("CHAPTER "):
+                current_section = text[:150]  # Clean section header tag
+
             structured_chunks.append({
-                "element_id": f"chunk_{i:03d}",
-                "category": element.category,
-                "text": str(element)
+                "element_id": f"chunk_{i:04d}",
+                "category": category,
+                "section_header": current_section,
+                "text": text
             })
 
         return structured_chunks
