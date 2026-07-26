@@ -1,9 +1,9 @@
-from fastapi import APIRouter, UploadFile, File, Form
-from pydantic import BaseModel
+from pathlib import Path
 from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 from app.services.graph_service import fetch_node_with_provenance, search_graph_by_query
-from app.models.graph import NodeProvenanceResponse
 from app.services.pig_validator import evaluate_3_fan_window, IntegrityReport
 from app.services.rea_auditor import execute_recursive_entropy_audit, calculate_shannon_entropy
 from app.services.ontological_critic import run_recursive_contradiction_probe
@@ -73,10 +73,6 @@ class NeuralSIPReport(BaseModel):
     efficiency_gain_pct: float
     policy_status: str
 
-class GraphSearchPayload(BaseModel):
-    query: str
-    limit: int = 5
-
 @api_router.get("/status", tags=["System Health"])
 async def system_status():
     return {"message": "Occo AI Semantic Firewall is online and routing correctly."}
@@ -99,10 +95,14 @@ async def ingest_enterprise_document(
     and prepares it for Neo4j structural and vector indexing.
     """
     file_path = ingestion_controller.parser.upload_dir / file.filename
+    
+    # Extract filename without extension and sanitize it for global enterprise graph uniqueness
+    doc_name = Path(file.filename).stem.replace(" ", "_").replace("-", "_").lower()
+    
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
 
-    result = ingestion_controller.process_and_validate_document(str(file_path), node_type)
+    result = ingestion_controller.process_and_validate_document(str(file_path), node_type, doc_name)
     return result
 
 @api_router.post("/compress", response_model=REACompressResult, tags=["Semantic Auditing"])
@@ -162,24 +162,23 @@ async def run_neural_sip_prediction(payload: NeuralSIPPayload):
     report = predict_sufficient_information_point(token_len, payload.shannon_entropy, payload.confidence_threshold)
     return NeuralSIPReport(**report)
 
-@api_router.post("/graph/search", tags=["Graph Retrieval"])
-async def search_graph(payload: GraphSearchPayload):
+@api_router.get("/graph/search", tags=["Graph Retrieval"])
+async def search_graph(query: str, limit: int = 5):
     """
     Mode 1 Q&A Search Entrypoint: Performs semantic/keyword search across ingested graph chunks,
     returning matching node IDs, text content, and their structural section headers.
     """
-    matches = search_graph_by_query(payload.query, payload.limit)
-    return {"query": payload.query, "matches_count": len(matches), "matches": matches}
+    matches = search_graph_by_query(query, limit)
+    return {"query": query, "matches_count": len(matches), "matches": matches}
 
 @api_router.get(
     "/graph/node/{node_id}", 
-    response_model=NodeProvenanceResponse, 
     tags=["Graph Retrieval"]
 )
 async def get_node_provenance(node_id: str):
     """
-    Fetches node provenance from Neo4j and dynamically validates 
-    its structure against the active YAML compliance schema.
+    Fetches node provenance from Neo4j along with sequential previous/next siblings, 
+    and dynamically validates its structure against the active YAML compliance schema.
     """
     provenance_data = fetch_node_with_provenance(node_id)
     
@@ -202,6 +201,7 @@ async def get_node_provenance(node_id: str):
 
     DynamicModel(**validated_payload)
     
+    # Returns the full payload un-stripped (including previous_node and next_node)
     return provenance_data
 
 @api_router.post("/telemetry/log", tags=["Telemetry & Evaluation"])
@@ -217,3 +217,16 @@ async def get_telemetry_export():
     Exports accumulated telemetry logs.
     """
     return export_telemetry_dataset()
+
+@api_router.websocket("/ws/audit-alerts")
+async def websocket_audit_alerts(websocket: WebSocket):
+    """
+    Mode 2 WebSocket Endpoint: Maintains a persistent connection with the SvelteKit dashboard 
+    to push real-time Semantic Contradiction Alerts (ZKP Escalations) when background uploads fail.
+    """
+    await websocket.accept()
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        print("Dashboard client disconnected from continuous audit socket.")

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
     import Sidebar from '$lib/components/Sidebar.svelte';
     import NodePayload from '$lib/components/NodePayload.svelte';
     import IntegrityCard from '$lib/components/IntegrityCard.svelte';
@@ -70,9 +71,27 @@
         threshold_used: number;
     }
 
+    interface SearchMatch {
+        node_id: string;
+        section_header: string;
+        exact_match: string;
+        multi_hop_context: string;
+    }
+
+    interface AuditAlert {
+        status: string;
+        d_js_score: number;
+        target_node_id: string;
+        timestamp?: string;
+    }
+
     // State management & Session Tracking for DREPT Telemetry
     let sessionId: string = 'session_' + Math.random().toString(36).substring(2, 9);
-    let nodeId: string = 'Article_10';
+    let nodeId: string = 'chunk_0117';
+    let searchQuery: string = '';
+    let searchResults: SearchMatch[] = [];
+    let contradictionAlerts: AuditAlert[] = [];
+
     let nodeData: NodeProvenance | null = null;
     let compressionData: CompressionResult | null = null;
     let integrityData: IntegrityReport | null = null;
@@ -83,10 +102,33 @@
     let evaluationMode: string = 'Visual_Trust_Mode';
 
     let isLoading: boolean = false;
+    let isSearching: boolean = false;
     let isCompressing: boolean = false;
     let isValidating: boolean = false;
     let isProbing: boolean = false;
     let errorMessage: string | null = null;
+
+    // Connect WebSocket for Mode 2 Background Auditing Alerts
+    onMount(() => {
+        let ws: WebSocket | null = null;
+        try {
+            ws = new WebSocket('ws://127.0.0.1:8000/api/v1/ws/audit-alerts');
+            ws.onmessage = (event) => {
+                try {
+                    const alertData: AuditAlert = JSON.parse(event.data);
+                    contradictionAlerts = [alertData, ...contradictionAlerts];
+                } catch (err) {
+                    console.warn('Failed to parse incoming WebSocket alert:', err);
+                }
+            };
+        } catch (e) {
+            console.warn('WebSocket connection offline (Mode 2 standalone mode active).');
+        }
+
+        return () => {
+            if (ws) ws.close();
+        };
+    });
 
     // Helper function to dispatch HCI telemetry events to FastAPI
     async function logTelemetry(eventType: string, metadata: Record<string, any> = {}) {
@@ -104,6 +146,32 @@
         } catch (e) {
             console.warn('Telemetry transmission failed:', e);
         }
+    }
+
+    // Mode 1: Multi-Hop Keyword / Natural Language Search
+    async function searchGraph() {
+        if (!searchQuery.trim()) return;
+        
+        isSearching = true;
+        errorMessage = null;
+
+        try {
+            const response = await fetch(`http://127.0.0.1:8000/api/v1/graph/search?query=${encodeURIComponent(searchQuery.trim())}&limit=5`);
+            if (!response.ok) throw new Error(`Search failed with HTTP ${response.status}`);
+            
+            const data = await response.json();
+            searchResults = data.matches || [];
+            logTelemetry('graph_search', { query: searchQuery.trim(), match_count: searchResults.length });
+        } catch (err: any) {
+            errorMessage = err.message || 'Failed to search graph database.';
+        } finally {
+            isSearching = false;
+        }
+    }
+
+    async function selectNodeFromSearch(selectedNodeId: string) {
+        nodeId = selectedNodeId;
+        await fetchProvenance();
     }
 
     async function fetchProvenance() {
@@ -269,14 +337,17 @@
         <!-- Modular Sidebar Controls -->
         <Sidebar 
             bind:nodeId={nodeId}
+            bind:searchQuery={searchQuery}
             bind:confidenceThreshold={confidenceThreshold}
             bind:autoPilotActive={autoPilotActive}
             bind:evaluationMode={evaluationMode}
             hasNodeData={!!nodeData}
             isLoading={isLoading}
+            isSearching={isSearching}
             isCompressing={isCompressing}
             isValidating={isValidating}
             isProbing={isProbing}
+            on:search={searchGraph}
             on:fetch={fetchProvenance}
             on:compress={runCompression}
             on:probe={runCriticProbe}
@@ -287,15 +358,73 @@
 
         <!-- Main Visualization Display -->
         <section class="flex-1 p-8 bg-gray-950 overflow-y-auto">
+            <!-- Mode 2 Real-Time WebSocket Alerts -->
+            {#if contradictionAlerts.length > 0}
+                <div class="max-w-4xl mx-auto mb-6 p-4 bg-red-950/40 border border-red-600/60 rounded-xl text-red-200 shadow-lg">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-2 text-red-400 font-bold uppercase text-xs tracking-wider">
+                            <span class="relative flex h-2 w-2">
+                              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                              <span class="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                            </span>
+                            Mode 2 Alert: Autonomous Semantic Violation
+                        </div>
+                        <button on:click={() => contradictionAlerts = []} class="text-xs text-red-400 hover:text-red-200 underline">
+                            Clear Alerts
+                        </button>
+                    </div>
+                    <div class="flex flex-col gap-1.5">
+                        {#each contradictionAlerts as alert}
+                            <div class="text-xs font-mono bg-red-900/30 p-2 rounded border border-red-800/40 flex justify-between">
+                                <span>Target: <b>{alert.target_node_id}</b></span>
+                                <span>Jensen-Shannon Divergence Score: <b>{alert.d_js_score}</b></span>
+                                <span class="text-red-400">{alert.status}</span>
+                            </div>
+                        {/each}
+                    </div>
+                </div>
+            {/if}
+
             {#if errorMessage}
-                <div class="max-w-3xl mx-auto p-4 mb-6 bg-red-950/50 border border-red-800 rounded-lg text-red-300 text-sm flex items-center gap-3">
+                <div class="max-w-4xl mx-auto p-4 mb-6 bg-red-950/50 border border-red-800 rounded-lg text-red-300 text-sm flex items-center gap-3">
                     <span class="font-bold">Error:</span> {errorMessage}
+                </div>
+            {/if}
+
+            <!-- Mode 1 Multi-Hop Search Results Container -->
+            {#if searchResults.length > 0}
+                <div class="max-w-4xl mx-auto mb-8">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-sm font-bold text-gray-400 uppercase tracking-wider">
+                            Multi-Hop Search Results ({searchResults.length} Matches)
+                        </h3>
+                        <button on:click={() => searchResults = []} class="text-xs text-indigo-400 hover:text-indigo-300 underline">
+                            Dismiss Search
+                        </button>
+                    </div>
+                    <div class="flex flex-col gap-4">
+                        {#each searchResults as match}
+                            <div class="bg-gray-900 border border-gray-800 rounded-xl p-5 hover:border-indigo-500/50 transition-all">
+                                <div class="flex items-center justify-between mb-3">
+                                    <span class="text-xs font-mono bg-indigo-950 text-indigo-300 px-2 py-0.5 rounded border border-indigo-800/50">
+                                        {match.section_header}
+                                    </span>
+                                    <button 
+                                        on:click={() => selectNodeFromSearch(match.node_id)}
+                                        class="text-xs font-mono bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded transition-colors shadow-sm"
+                                    >
+                                        Inspect Node {match.node_id}
+                                    </button>
+                                </div>
+                                <pre class="text-xs font-mono text-gray-300 bg-gray-950 p-3 rounded-lg border border-gray-800 whitespace-pre-wrap leading-relaxed overflow-x-auto">{match.multi_hop_context}</pre>
+                            </div>
+                        {/each}
+                    </div>
                 </div>
             {/if}
             
             {#if nodeData}
-                <div class="max-w-3xl mx-auto flex flex-col">
-                    
+                <div class="max-w-4xl mx-auto flex flex-col">
                     {#if evaluationMode === 'Visual_Trust_Mode'}
                         {#if integrityData}
                             <IntegrityCard {integrityData} />
@@ -318,18 +447,17 @@
                     {#if compressionData && !integrityData?.honest_ignorance_triggered}
                         <EntropyCard {compressionData} />
                     {/if}
-                    
                 </div>
-            {:else}
-                <div class="max-w-4xl mx-auto flex flex-col items-center justify-center h-full text-center">
+            {:else if searchResults.length === 0}
+                <div class="max-w-4xl mx-auto flex flex-col items-center justify-center h-full text-center py-16">
                     <div class="h-16 w-16 mb-6 rounded-full border border-gray-700 bg-gray-900 flex items-center justify-center text-gray-500">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                         </svg>
                     </div>
-                    <h3 class="text-xl font-medium text-gray-300 mb-2">Awaiting Node Request</h3>
+                    <h3 class="text-xl font-medium text-gray-300 mb-2">Awaiting Graph Query or Node Input</h3>
                     <p class="text-gray-500 text-sm max-w-md mx-auto">
-                        Enter a legal node identifier in the sidebar and click <b>Fetch Provenance</b> to request live graph topological context.
+                        Search the graph by term (e.g., <b>data governance</b>) or enter a direct node identifier in the sidebar to inspect multi-hop context.
                     </p>
                 </div>
             {/if}

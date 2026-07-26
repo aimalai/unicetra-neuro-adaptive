@@ -3,8 +3,10 @@
     const dispatch = createEventDispatcher();
 
     export let nodeId: string;
+    export let searchQuery: string = '';
     export let hasNodeData: boolean;
     export let isLoading: boolean;
+    export let isSearching: boolean = false;
     export let isCompressing: boolean;
     export let isValidating: boolean;
     export let isProbing: boolean;
@@ -12,7 +14,7 @@
     // Algorithmic Calibration, Neural Auto-Pilot, & A/B Testing State
     export let confidenceThreshold: number = 0.85;
     export let autoPilotActive: boolean = false;
-    export let evaluationMode: string = 'Visual_Trust_Mode'; // 'Visual_Trust_Mode' or 'Opaque_RAG_Mode'
+    export let evaluationMode: string = 'Visual_Trust_Mode';
 
     function handleSliderChange() {
         dispatch('calibrate', { threshold: confidenceThreshold });
@@ -41,23 +43,53 @@
 
     <hr class="border-gray-800" />
 
+    <!-- Mode 1: Semantic Graph Search -->
     <div>
-        <h2 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Graph Retrieval</h2>
+        <h2 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Semantic Graph Search</h2>
+        <div class="flex flex-col gap-2">
+            <input 
+                type="text" 
+                bind:value={searchQuery}
+                on:keydown={(e) => e.key === 'Enter' && dispatch('search')}
+                placeholder="Query term (e.g. data governance)" 
+                class="w-full bg-gray-950 border border-gray-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all placeholder:text-gray-600 font-mono" 
+            />
+            <button 
+                on:click={() => dispatch('search')}
+                disabled={isSearching || !searchQuery.trim()}
+                class="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium py-2 rounded-md transition-colors shadow-sm flex items-center justify-center gap-2"
+            >
+                {#if isSearching}
+                    <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
+                    Traversing Graph...
+                {:else}
+                    Search Multi-Hop Graph
+                {/if}
+            </button>
+        </div>
+    </div>
+
+    <hr class="border-gray-800" />
+
+    <!-- Direct Node Lookup -->
+    <div>
+        <h2 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Direct Node Lookup</h2>
         <div class="flex flex-col gap-2">
             <input 
                 type="text" 
                 bind:value={nodeId}
-                placeholder="Enter Node ID (e.g. Article_10)" 
-                class="w-full bg-gray-950 border border-gray-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all placeholder:text-gray-600" 
+                on:keydown={(e) => e.key === 'Enter' && dispatch('fetch')}
+                placeholder="Enter Node ID (e.g. chunk_0117)" 
+                class="w-full bg-gray-950 border border-gray-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all placeholder:text-gray-600 font-mono" 
             />
             <button 
                 on:click={() => dispatch('fetch')}
                 disabled={isLoading}
-                class="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium py-2 rounded-md transition-colors shadow-sm flex items-center justify-center gap-2"
+                class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 disabled:opacity-50 text-gray-200 text-sm font-medium py-2 rounded-md transition-colors shadow-sm flex items-center justify-center gap-2"
             >
                 {#if isLoading}
                     <span class="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full"></span>
-                    Querying...
+                    Querying Node...
                 {:else}
                     Fetch Provenance
                 {/if}

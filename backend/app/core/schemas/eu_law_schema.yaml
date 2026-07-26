@@ -1,10 +1,13 @@
-domain: "European Union Regulatory Compliance"
-target_legislation: "EU AI Act & Digital Services Act (DSA)"
+domain: "Enterprise Regulatory & AI Governance Compliance"
+target_legislation: "EU AI Act, GDPR, DSA, NIST AI RMF"
 hierarchy:
-  root_node: "Regulation"
+  root_node: "Document"
+  structural_container:
+    name: "Section"
+    description: "Hierarchical chapters, titles, and structural section headers."
   primary_provision:
     name: "Article"
-    description: "Binding operational rules and legal requirements."
+    description: "Binding operational rules, legal requirements, or framework guidelines."
     min_degree_centrality: 0.75
   interpretive_context:
     name: "Recital"

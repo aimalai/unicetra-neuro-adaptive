@@ -7,10 +7,11 @@ class DocumentIngestionParser:
         self.upload_dir = Path(upload_dir)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
 
-    def parse_document(self, file_path: str) -> List[Dict[str, Any]]:
+    def parse_document(self, file_path: str, doc_name: str = "default_doc") -> List[Dict[str, Any]]:
         """
         Parses multi-format documents (PDFs, Word, HTML) using 'unstructured'.
         Extracts text elements and tracks active layout headers to build a hierarchical tree.
+        Uses `doc_name` to construct unique node IDs across enterprise multi-doc uploads.
         """
         path = Path(file_path)
         if not path.exists():
@@ -33,7 +34,7 @@ class DocumentIngestionParser:
                 current_section = text[:150]  # Clean section header tag
 
             structured_chunks.append({
-                "element_id": f"chunk_{i:04d}",
+                "element_id": f"{doc_name}_chunk_{i:04d}",
                 "category": category,
                 "section_header": current_section,
                 "text": text

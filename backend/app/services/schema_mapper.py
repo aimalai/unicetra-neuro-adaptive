@@ -5,7 +5,7 @@ from typing import Dict, Any, Type, Optional
 
 class DynamicSchemaLoader:
     def __init__(self, schema_filename: str = "eu_law_schema.yaml"):
-        # Adjust path dynamically to match your directory structure
+        # Adjust path dynamically to match directory structure
         self.schema_path = Path(__file__).parent.parent / "schemas" / schema_filename
         self.schema_definition = self._load_yaml()
 
@@ -26,12 +26,11 @@ class DynamicSchemaLoader:
         Dynamically constructs Pydantic validation models at runtime based on the loaded YAML schema.
         Enables universal, domain-agnostic enterprise scaling without changing core logic.
         """
-        hierarchy = self.schema_definition.get("hierarchy", {})
-        
         fields = {
             "node_id": (str, ...),
             "text_content": (str, ...),
             "node_type": (str, node_type),
+            "section_header": (Optional[str], "Document Preamble"),
             "parent_id": (Optional[str], None),
             "parent_content": (Optional[str], None),
         }

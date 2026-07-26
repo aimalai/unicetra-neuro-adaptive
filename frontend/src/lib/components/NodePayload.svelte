@@ -7,11 +7,18 @@
         parent_content: string;
     }
 
+    interface SiblingInfo {
+        node_id: string;
+        text_content: string;
+    }
+
     interface NodeProvenance {
         node_id: string;
         text_content: string;
         labels: string[];
         parent: ParentInfo | null;
+        previous_node?: SiblingInfo | null;
+        next_node?: SiblingInfo | null;
     }
 
     export let nodeData: NodeProvenance;
@@ -19,7 +26,7 @@
 
     let svgElement: SVGSVGElement;
     let width = 700;
-    let height = 250;
+    let height = 300;
 
     function renderGraph() {
         if (!svgElement || !nodeData) return;
@@ -34,25 +41,38 @@
         ];
         const links: any[] = [];
 
+        // Add Parent Node (Hierarchical Hop)
         if (nodeData.parent) {
-            nodes.push({ id: nodeData.parent.parent_id, group: 'parent', label: 'Parent' });
-            links.push({ source: nodeData.parent.parent_id, target: nodeData.node_id });
+            nodes.push({ id: nodeData.parent.parent_id, group: 'parent', label: 'Section' });
+            links.push({ source: nodeData.parent.parent_id, target: nodeData.node_id, type: 'HAS_CHUNK' });
+        }
+
+        // Add Previous Node (Sequential Hop)
+        if (nodeData.previous_node) {
+            nodes.push({ id: nodeData.previous_node.node_id, group: 'sibling', label: 'Previous' });
+            links.push({ source: nodeData.previous_node.node_id, target: nodeData.node_id, type: 'NEXT' });
+        }
+
+        // Add Next Node (Sequential Hop)
+        if (nodeData.next_node) {
+            nodes.push({ id: nodeData.next_node.node_id, group: 'sibling', label: 'Next' });
+            links.push({ source: nodeData.node_id, target: nodeData.next_node.node_id, type: 'NEXT' });
         }
 
         // Configure D3 Force Simulation
         const simulation = d3.forceSimulation(nodes)
-            .force("link", d3.forceLink(links).id((d: any) => d.id).distance(150))
+            .force("link", d3.forceLink(links).id((d: any) => d.id).distance(140))
             .force("charge", d3.forceManyBody().strength(-400))
             .force("center", d3.forceCenter(width / 2, height / 2))
-            .force("collide", d3.forceCollide().radius(40));
+            .force("collide", d3.forceCollide().radius(45));
 
         // Draw structural links
         const link = svg.append("g")
-            .attr("stroke", isLocked ? "#4b5563" : "#6366f1")
-            .attr("stroke-opacity", 0.6)
             .selectAll("line")
             .data(links)
             .join("line")
+            .attr("stroke", d => d.type === 'NEXT' ? "#94a3b8" : (isLocked ? "#4b5563" : "#6366f1"))
+            .attr("stroke-opacity", 0.6)
             .attr("stroke-width", 2)
             .attr("stroke-dasharray", isLocked ? "5,5" : "none");
 
@@ -61,14 +81,18 @@
             .selectAll("circle")
             .data(nodes)
             .join("circle")
-            .attr("r", d => d.group === 'target' ? 22 : 18)
+            .attr("r", d => d.group === 'target' ? 24 : 18)
             .attr("fill", d => {
                 if (isLocked) return "#374151"; 
-                return d.group === 'target' ? "#4f46e5" : "#059669"; 
+                if (d.group === 'target') return "#4f46e5";
+                if (d.group === 'sibling') return "#0ea5e9";
+                return "#059669"; // Parent
             })
             .attr("stroke", d => {
                 if (isLocked) return "#ef4444"; 
-                return d.group === 'target' ? "#818cf8" : "#34d399";
+                if (d.group === 'target') return "#818cf8";
+                if (d.group === 'sibling') return "#7dd3fc";
+                return "#34d399";
             })
             .attr("stroke-width", 2.5)
             .attr("cursor", "grab")
@@ -79,7 +103,7 @@
             .selectAll("text")
             .data(nodes)
             .join("text")
-            .attr("dy", -32)
+            .attr("dy", -30)
             .attr("text-anchor", "middle")
             .attr("fill", isLocked ? "#9ca3af" : "#e5e7eb")
             .attr("font-size", "12px")
@@ -87,7 +111,7 @@
             .attr("font-family", "monospace")
             .text(d => d.id);
 
-        // Simulation tick updates
+        // Simulation tick updates with strict viewport coordinate clamping
         simulation.on("tick", () => {
             link
                 .attr("x1", d => d.source.x)
@@ -96,12 +120,12 @@
                 .attr("y2", d => d.target.y);
 
             node
-                .attr("cx", d => d.x)
-                .attr("cy", d => d.y);
+                .attr("cx", d => Math.max(30, Math.min(width - 30, d.x)))
+                .attr("cy", d => Math.max(30, Math.min(height - 30, d.y)));
 
             label
-                .attr("x", d => d.x)
-                .attr("y", d => d.y);
+                .attr("x", d => Math.max(30, Math.min(width - 30, d.x)))
+                .attr("y", d => Math.max(30, Math.min(height - 30, d.y)));
         });
     }
 
@@ -143,7 +167,7 @@
                 </span>
             {/each}
         </h2>
-        <p class="text-xs text-gray-500 mt-1">Provenance Verification View</p>
+        <p class="text-xs text-gray-500 mt-1">Multi-Hop Provenance Verification View</p>
     </div>
 </div>
 
@@ -154,29 +178,53 @@
     {/if}
     <div class="absolute top-4 left-4 z-10 flex items-center gap-2">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-        <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Topological Topology</span>
+        <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Topological Sequence</span>
     </div>
-    <svg bind:this={svgElement} class="w-full h-[250px] outline-none" viewBox="0 0 {width} {height}"></svg>
+    <svg bind:this={svgElement} class="w-full h-[300px] outline-none" viewBox="0 0 {width} {height}"></svg>
 </div>
 
 <!-- Raw Payload Displays -->
 <div class="grid grid-cols-1 gap-4">
-    <div class={`bg-gray-900/80 border rounded-xl p-6 shadow-md transition-all ${isLocked ? 'border-red-900/50 opacity-50 grayscale pointer-events-none' : 'border-gray-800'}`}>
+    {#if nodeData.previous_node && !isLocked}
+        <div class="relative pl-6 border-l-2 border-sky-500/50 my-2">
+            <div class="bg-sky-950/10 border border-sky-900/30 rounded-xl p-4 shadow-sm">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-[10px] font-bold uppercase tracking-wider text-sky-400">Previous Sequence</h3>
+                    <span class="text-xs font-mono text-gray-400">{nodeData.previous_node.node_id}</span>
+                </div>
+                <p class="text-gray-400 text-sm leading-relaxed italic line-clamp-3">{nodeData.previous_node.text_content}</p>
+            </div>
+        </div>
+    {/if}
+
+    <div class={`bg-gray-900/80 border rounded-xl p-6 shadow-md transition-all ${isLocked ? 'border-red-900/50 opacity-50 grayscale pointer-events-none' : 'border-gray-800 border-l-4 border-l-indigo-500'}`}>
         <div class="flex justify-between items-start mb-2">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-indigo-400">Target Payload</h3>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-indigo-400">Target Payload Match</h3>
             <span class="text-xs text-gray-500 font-mono">{nodeData.text_content.length} chars</span>
         </div>
         <p class="text-gray-200 text-sm leading-relaxed">{nodeData.text_content}</p>
     </div>
 
-    {#if nodeData.parent && !isLocked}
-        <div class="relative pl-6 border-l-2 border-emerald-500/50 my-2">
-            <div class="bg-emerald-950/10 border border-emerald-900/30 rounded-xl p-6 shadow-sm">
+    {#if nodeData.next_node && !isLocked}
+        <div class="relative pl-6 border-l-2 border-sky-500/50 my-2">
+            <div class="bg-sky-950/10 border border-sky-900/30 rounded-xl p-4 shadow-sm">
                 <div class="flex items-center justify-between mb-2">
-                    <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-400">Linked Context</h3>
-                    <span class="text-xs font-mono text-gray-400">Parent: {nodeData.parent.parent_id}</span>
+                    <h3 class="text-[10px] font-bold uppercase tracking-wider text-sky-400">Next Sequence</h3>
+                    <span class="text-xs font-mono text-gray-400">{nodeData.next_node.node_id}</span>
                 </div>
-                <p class="text-gray-300 text-sm leading-relaxed italic">"{nodeData.parent.parent_content}"</p>
+                <p class="text-gray-400 text-sm leading-relaxed italic line-clamp-3">{nodeData.next_node.text_content}</p>
+            </div>
+        </div>
+    {/if}
+
+    {#if nodeData.parent && !isLocked}
+        <div class="mt-4 pt-4 border-t border-gray-800">
+            <div class="bg-emerald-950/10 border border-emerald-900/30 rounded-xl p-5 shadow-sm">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-emerald-400">Hierarchical Parent Section</h3>
+                    <span class="text-xs font-mono text-gray-400">{nodeData.parent.parent_id}</span>
+                </div>
+                <p class="text-gray-300 text-sm leading-relaxed font-semibold">"{nodeData.parent.parent_content}"</p>
             </div>
         </div>
     {/if}

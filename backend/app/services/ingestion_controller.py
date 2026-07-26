@@ -8,16 +8,16 @@ class UniversalIngestionController:
         self.parser = ingestion_parser
         self.schema = schema_loader
 
-    def process_and_validate_document(self, file_path: str, node_type: str = "Article") -> Dict[str, Any]:
+    def process_and_validate_document(self, file_path: str, node_type: str = "Article", doc_name: str = "default_doc") -> Dict[str, Any]:
         """
         Universal commercial ingestion pipeline:
-        1. Parses raw files format-agnostically (PDF, Word, HTML).
+        1. Parses raw files format-agnostically (PDF, Word, HTML), using doc_name to prevent ID collisions.
         2. Dynamically generates the validation model from the active YAML schema.
         3. Enforces hierarchical structural rules.
         4. Persists validated structural nodes into Neo4j graph database.
         """
-        # Step 1: Extract semantic chunks using format-agnostic parsing
-        raw_chunks = self.parser.parse_document(file_path)
+        # Step 1: Extract semantic chunks using format-agnostic parsing and unique doc prefixes
+        raw_chunks = self.parser.parse_document(file_path, doc_name=doc_name)
         
         # Step 2: Dynamically fetch the runtime Pydantic model based on active YAML schema
         DynamicModel = self.schema.generate_dynamic_model(node_type)
@@ -28,7 +28,8 @@ class UniversalIngestionController:
             payload = {
                 "node_id": chunk.get("element_id", "node_unknown"),
                 "text_content": chunk.get("text", ""),
-                "node_type": node_type
+                "node_type": node_type,
+                "section_header": chunk.get("section_header", "Document Preamble")
             }
             
             # Runtime validation ensuring enterprise structural compliance
@@ -40,10 +41,11 @@ class UniversalIngestionController:
 
         # Step 3: Persist validated nodes into Neo4j graph storage & vector index
         if validated_elements:
-            save_chunks_to_neo4j(validated_elements)
+            save_chunks_to_neo4j(validated_elements, doc_name=doc_name)
 
         return {
             "status": "SUCCESS",
+            "document": doc_name,
             "domain": self.schema.schema_definition.get("domain"),
             "processed_chunks_count": len(validated_elements),
             "validated_nodes": validated_elements
