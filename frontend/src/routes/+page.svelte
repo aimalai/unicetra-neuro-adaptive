@@ -5,6 +5,7 @@
     import IntegrityCard from '$lib/components/IntegrityCard.svelte';
     import EntropyCard from '$lib/components/EntropyCard.svelte';
     import CriticCard from '$lib/components/CriticCard.svelte';
+    import DeepLensModal from '$lib/components/DeepLensModal.svelte';
 
     interface ParentInfo {
         parent_id: string;
@@ -101,6 +102,7 @@
     let confidenceThreshold: number = 0.85;
     let autoPilotActive: boolean = false;
     let evaluationMode: string = 'Visual_Trust_Mode';
+    let isDeepLensOpen: boolean = false;
 
     let isLoading: boolean = false;
     let isSearching: boolean = false;
@@ -150,17 +152,50 @@
     }
 
     async function submitRLHFFeedback(alertId: string, feedbackScore: number) {
-        // Remove the specific alert from the UI instantly
-        contradictionAlerts = contradictionAlerts.filter(a => a.target_node_id !== alertId);
-        
-        // Log telemetry
-        logTelemetry('rlhf_feedback_submitted', { 
-            alert_id: alertId, 
-            score: feedbackScore,
-            action: feedbackScore < 0 ? 'False Positive (Dismissed)' : 'True Positive (Accepted)'
+        const isDismissed = feedbackScore < 0;
+
+        // 1. Visual state transition for the alert
+        contradictionAlerts = contradictionAlerts.map(a => {
+            if (a.target_node_id === alertId) {
+                return { 
+                    ...a, 
+                    status: isDismissed ? 'OVERRIDDEN (False Positive)' : 'CONFIRMED (Violation Purged)' 
+                };
+            }
+            return a;
         });
+
+        setTimeout(() => {
+            contradictionAlerts = contradictionAlerts.filter(a => a.target_node_id !== alertId);
+        }, 1000);
+
+        // 2. Target Chunk Extraction
+        const chunkIdsInAlert = alertId.split('➔').map(s => s.trim());
+
+        if (!isDismissed) {
+            // ACCEPT (True Positive): Confirmed violation. Purge chunk from search results permanently.
+            searchResults = searchResults.filter(match => !chunkIdsInAlert.includes(match.node_id));
+        } else {
+            // DISMISS (False Positive): Auditor says it's safe. Keep it in search results, but adapt entropy metrics.
+            // No need to delete from searchResults since it's a valid node.
+        }
+
+        // 3. Live REA Computational Reaction
+        if (compressionData && compressionData.metrics) {
+            const tokenDelta = isDismissed ? -4 : 8; // Dismiss recovers tokens; Accept purges them
+            compressionData = {
+                ...compressionData,
+                compressed_length: Math.max(10, compressionData.compressed_length + tokenDelta),
+                metrics: {
+                    ...compressionData.metrics,
+                    pruned_tokens: Math.max(10, (compressionData.metrics.pruned_tokens || 0) + tokenDelta)
+                }
+            };
+        }
         
-        // Trigger the neural tuning backend route
+        // Log telemetry and trigger backend tuning...
+        logTelemetry('rlhf_feedback_submitted', { alert_id: alertId, score: feedbackScore });
+        
         try {
             await fetch('http://127.0.0.1:8000/api/v1/neural/rlhf-tune', {
                 method: 'POST',
@@ -174,7 +209,7 @@
             console.error("Failed to submit RLHF tuning data.", e);
         }
     }
-
+   
     // Mode 1: Multi-Hop Keyword / Natural Language Search
     async function searchGraph() {
         if (!searchQuery.trim()) return;
@@ -431,6 +466,10 @@
             isCompressing={isCompressing}
             isValidating={isValidating}
             isProbing={isProbing}
+            openDeepLens={() => {
+                console.log("DeepLens button clicked!");
+                isDeepLensOpen = true;
+            }}
             on:search={searchGraph}
             on:fetch={fetchProvenance}
             on:compress={runCompression}
@@ -453,7 +492,7 @@
                             </span>
                             Mode 2 Alert: Autonomous Semantic Violation
                         </div>
-                        <button on:click={() => contradictionAlerts = []} class="text-xs text-red-400 hover:text-red-300 underline">
+                        <button on:click={() => contradictionAlerts = []} class="text-xs text-red-400 hover:text-red-300 underline cursor-pointer">
                             Clear All Alerts
                         </button>
                     </div>
@@ -473,13 +512,13 @@
                                     <span class="text-[10px] text-gray-500 uppercase flex items-center mr-2">RLHF Tuning:</span>
                                     <button 
                                         on:click={() => submitRLHFFeedback(alert.target_node_id, -1.0)} 
-                                        class="text-[10px] bg-red-950 hover:bg-red-900 text-red-300 px-3 py-1 rounded border border-red-800/50 transition-colors"
+                                        class="text-[10px] bg-red-950 hover:bg-red-900 text-red-300 px-3 py-1 rounded border border-red-800/50 transition-colors cursor-pointer"
                                     >
                                         Dismiss (False Positive)
                                     </button>
                                     <button 
                                         on:click={() => submitRLHFFeedback(alert.target_node_id, 1.0)} 
-                                        class="text-[10px] bg-emerald-950 hover:bg-emerald-900 text-emerald-300 px-3 py-1 rounded border border-emerald-800/50 transition-colors"
+                                        class="text-[10px] bg-emerald-950 hover:bg-emerald-900 text-emerald-300 px-3 py-1 rounded border border-emerald-800/50 transition-colors cursor-pointer"
                                     >
                                         Accept (True Positive)
                                     </button>
@@ -523,7 +562,7 @@
                                     </span>
                                     <button 
                                         on:click={() => selectNodeFromSearch(match.node_id)}
-                                        class="text-xs font-mono bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded transition-colors shadow-sm"
+                                        class="text-xs font-mono bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1 rounded transition-colors shadow-sm cursor-pointer"
                                     >
                                         Inspect Node {match.node_id}
                                     </button>
@@ -571,4 +610,13 @@
             {/if}
         </section>
     </div>
+
+    <!-- DeepLens™ Neural X-Ray Modal Component -->
+    <DeepLensModal 
+        isOpen={isDeepLensOpen}
+        {sessionId}
+        {evaluationMode}
+        {confidenceThreshold}
+        on:close={() => isDeepLensOpen = false}
+    />
 </main>

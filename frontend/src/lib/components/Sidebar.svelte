@@ -11,6 +11,9 @@
     export let isValidating: boolean;
     export let isProbing: boolean;
     
+    // Accept open function directly as a prop to bypass event bubbling drop-offs
+    export let openDeepLens: () => void = () => {};
+
     // Algorithmic Calibration, Neural Auto-Pilot, & A/B Testing State
     export let confidenceThreshold: number = 0.85;
     export let autoPilotActive: boolean = false;
@@ -26,19 +29,20 @@
 </script>
 
 <aside class="w-80 border-r border-gray-800 bg-gray-900/50 p-6 flex flex-col gap-6 overflow-y-auto">
-    <!-- A/B Testing Ablation Toggle -->
-    <div class="bg-indigo-950/30 border border-indigo-900/40 rounded-lg p-3">
-        <div class="flex items-center justify-between mb-2">
-            <h2 class="text-[11px] font-bold text-indigo-300 uppercase tracking-wider">A/B Evaluation Mode</h2>
-        </div>
-        <select 
-            bind:value={evaluationMode} 
-            on:change={handleModeToggle}
-            class="w-full bg-gray-950 border border-indigo-800/60 rounded px-2 py-1.5 text-xs text-indigo-200 focus:outline-none focus:border-indigo-500 font-mono"
+    <!-- DeepLens Under-the-Hood Feature Button -->
+    <div class="bg-gradient-to-r from-indigo-900/40 to-purple-900/40 border border-indigo-500/40 rounded-xl p-3.5 shadow-lg">
+        <button 
+            on:click={() => {
+                console.log("DeepLens button clicked inside Sidebar!");
+                openDeepLens();
+            }}
+            class="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 px-3 rounded-lg transition-all flex items-center justify-center gap-2 shadow-[0_0_15px_rgba(79,70,229,0.4)] tracking-wide uppercase cursor-pointer"
         >
-            <option value="Visual_Trust_Mode">Visual Trust Mode (Full PIG/D3)</option>
-            <option value="Opaque_RAG_Mode">Opaque RAG Mode (Black-Box)</option>
-        </select>
+            <span>🔍</span> Inspect Neural Core (DeepLens)
+        </button>
+        <p class="text-[10px] text-gray-400 text-center mt-2 font-mono">
+            Open black-box tensor X-ray & attention layers
+        </p>
     </div>
 
     <hr class="border-gray-800" />
@@ -81,7 +85,7 @@
         </div>
     </div>
 
-    <!-- MICRO SCOPE: CHUNK VERIFICATION -->
+    <!-- MICRO SCOPE: CHUNK VERIFICATION & A/B TESTING -->
     <div class="border border-gray-700/50 rounded-lg p-4 bg-gray-950/30">
         <h2 class="text-xs font-bold text-indigo-400 uppercase tracking-wider mb-4 flex items-center gap-2">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
@@ -89,6 +93,21 @@
         </h2>
 
         <div class="flex flex-col gap-3">
+            <!-- A/B Testing Ablation Toggle grouped inside Micro Scope -->
+            <div class="bg-indigo-950/30 border border-indigo-900/40 rounded-lg p-2.5 mb-1">
+                <div class="flex items-center justify-between mb-1.5">
+                    <span class="text-[10px] font-bold text-indigo-300 uppercase tracking-wider">A/B Evaluation Mode</span>
+                </div>
+                <select 
+                    bind:value={evaluationMode} 
+                    on:change={handleModeToggle}
+                    class="w-full bg-gray-950 border border-indigo-800/60 rounded px-2 py-1.5 text-xs text-indigo-200 focus:outline-none focus:border-indigo-500 font-mono"
+                >
+                    <option value="Visual_Trust_Mode">Visual Trust Mode (Full PIG/D3)</option>
+                    <option value="Opaque_RAG_Mode">Opaque RAG Mode (Black-Box)</option>
+                </select>
+            </div>
+
             <div class="flex gap-2">
                 <input 
                     type="text" 
@@ -110,7 +129,7 @@
                 </button>
             </div>
 
-            <div class="mt-2 mb-2">
+            <div class="mt-1 mb-1">
                 <div class="flex items-center justify-between mb-2">
                     <span class="text-[10px] text-gray-400 uppercase font-bold tracking-wide">PIG Tolerance (3-Fan)</span>
                     <span class="text-[10px] font-mono text-indigo-400 bg-indigo-950/50 px-1.5 py-0.5 rounded border border-indigo-900">
