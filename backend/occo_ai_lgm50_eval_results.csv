@@ -1,0 +1,6 @@
+Fact_ID,Domain,Target,Shannon_Entropy,C2K_Ratio,Surprisal_Fan,Structural_Fan,Positional_Fan,Gate_Passed,Honest_Ignorance,Latency_ms
+1,Biomedical,Warfarin mechanism of action (VKORC1),4.2971,1.0,0.9317,0.87,0.99,True,False,9.0
+18,Legal,Marbury v. Madison (Judicial Review),4.0535,1.0,0.8762,0.95,0.99,True,False,4.0
+35,Algorithmic,Dijkstra's Algorithm optimal time complexity,4.6808,1.0,0.9352,0.87,0.99,True,False,4.9
+26,Legal,Gideon v. Wainwright (6th Amendment),4.83,1.0,0.8999,0.87,0.99,True,False,1.39
+50,Algorithmic,Knapsack Problem (0/1) pseudo-polynomial time,4.585,1.0,0.9519,0.87,0.99,True,False,0.0

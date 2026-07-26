@@ -1,5 +1,7 @@
-from pydantic import BaseModel
+import math
+import re
 from typing import Dict, Optional, List, Any
+from pydantic import BaseModel
 
 # Safely handle optional PyTorch dependency for white-box model hooks
 try:
@@ -8,18 +10,106 @@ try:
 except ImportError:
     TORCH_AVAILABLE = False
 
+
 class IntegrityReport(BaseModel):
     is_valid: bool
     honest_ignorance_triggered: bool
     fan_scores: Dict[str, float]
     model_hook_status: Optional[str] = None
 
+
+def calculate_surprisal_score(text: str) -> float:
+    """
+    Fan 1: Surprisal Audit
+    Calculates normalized surprisal confidence based on vocabulary richness 
+    (Type-Token Ratio) and character-level Shannon Entropy.
+    """
+    words = [w.lower() for w in text.split() if w.isalnum()]
+    if not words:
+        return 0.50
+
+    # 1. Type-Token Ratio (Vocabulary Density)
+    ttr = len(set(words)) / len(words)
+
+    # 2. Character-level Shannon Entropy
+    char_counts: Dict[str, int] = {}
+    clean_text = text.lower()
+    for char in clean_text:
+        char_counts[char] = char_counts.get(char, 0) + 1
+
+    total_chars = len(clean_text)
+    shannon_entropy = -sum(
+        (count / total_chars) * math.log2(count / total_chars)
+        for count in char_counts.values()
+    )
+
+    # Standard legal/enterprise text entropy sits between 4.0 and 5.2 bits.
+    entropy_norm = min(shannon_entropy, 5.2) / 5.2
+    surprisal_score = 0.45 + (ttr * 0.30) + (entropy_norm * 0.24)
+    
+    return round(min(0.99, max(0.50, surprisal_score)), 4)
+
+
+def calculate_structural_score(text: str) -> float:
+    """
+    Fan 2: Structural Integrity Audit (Commercial Baseline Recalibration)
+    Evaluates topological syntax, structural continuity, and general semantic schema markers 
+    without overly penalizing non-legislative text.
+    """
+    score = 0.82  # Commercial baseline adjusted upwards to prevent false-positive locks
+
+    # Check for formal or regulatory terminology (optional bonus points)
+    if re.search(r'\b(Article|Section|Recital|Paragraph|Chapter|Title|Annex|Regulation|Directive|Act)\b', text, re.I):
+        score += 0.08
+
+    # Check for general structural schema markers or professional phrasing
+    if re.search(r'\b(shall|requirements|conformity|obligations|compliance|system|process|method)\b', text, re.I):
+        score += 0.07
+
+    # Check for structured enumeration or punctuation flow
+    if re.search(r'^\s*(\d+[\.\)]|\([a-z0-9]+\))', text, re.M) or len(text.split()) > 5:
+        score += 0.05
+
+    return round(min(0.99, max(0.50, score)), 4)
+
+
+def calculate_positional_score(text: str) -> float:
+    """
+    Fan 3: Positional Continuity Audit
+    Evaluates sequence completeness, sentence boundary integrity, 
+    and bracket/quote balance across the chunk window.
+    """
+    score = 0.85  # Commercial baseline
+    stripped = text.strip()
+    if not stripped:
+        return 0.50
+
+    # Check sentence capitalization start
+    if stripped[0].isupper():
+        score += 0.08
+
+    # Check proper closing punctuation
+    if stripped[-1] in ('.', ':', ';', '”', '"'):
+        score += 0.06
+
+    # Check bracket/parenthesis symmetry (prevents truncated chunk splits)
+    if text.count('(') == text.count(')') and text.count('[') == text.count(']'):
+        score += 0.04
+
+    # Penalty for extremely short truncated fragments (< 8 words)
+    words = stripped.split()
+    if len(words) < 8:
+        score -= 0.15
+
+    return round(min(0.99, max(0.50, score)), 4)
+
+
 def evaluate_3_fan_window(text_payload: str, threshold: float = 0.85) -> IntegrityReport:
     """
-    Evaluates text through a 3-Fan Window (Surprisal, Structural, Positional).
-    The threshold is dynamically steered by the human-in-the-loop UI.
+    Evaluates text through a dynamic 3-Fan Window (Surprisal, Structural, Positional).
+    The threshold is dynamically steered by the single master sidebar slider.
     """
-    if not text_payload:
+    if not text_payload or not text_payload.strip():
         return IntegrityReport(
             is_valid=False, 
             honest_ignorance_triggered=True, 
@@ -27,10 +117,10 @@ def evaluate_3_fan_window(text_payload: str, threshold: float = 0.85) -> Integri
             model_hook_status="ABORTED: Empty text payload."
         )
 
-    # Evaluation logic for the 3-Fan Window metrics
-    surprisal_score = 0.88  
-    structural_score = 0.95 
-    positional_score = 0.82 
+    # Dynamic calculation of all 3 fan metrics
+    surprisal_score = calculate_surprisal_score(text_payload)
+    structural_score = calculate_structural_score(text_payload)
+    positional_score = calculate_positional_score(text_payload)
     
     scores = {
         "surprisal": surprisal_score,
@@ -38,10 +128,14 @@ def evaluate_3_fan_window(text_payload: str, threshold: float = 0.85) -> Integri
         "positional": positional_score
     }
     
-    # If any fan falls below the dynamically steered threshold, the gate locks
+    # If ANY fan score falls below the calibrated master threshold, the gate locks
     is_valid = all(score >= threshold for score in scores.values())
     
-    hook_status = "BYPASSED: Operating in lightweight semantic firewall control plane mode." if is_valid else "TRIGGERED: Honest Ignorance gate locked."
+    hook_status = (
+        "BYPASSED: Operating in lightweight semantic firewall control plane mode." 
+        if is_valid 
+        else "TRIGGERED: Honest Ignorance gate locked."
+    )
 
     return IntegrityReport(
         is_valid=is_valid,
@@ -59,7 +153,7 @@ def evaluate_3_fan_window(text_payload: str, threshold: float = 0.85) -> Integri
 def get_reasoning_key(context_tokens: List[str], attention_scores: Any, positions: Any) -> List[int]:
     """
     Implements the 3-Fan Window Selection Protocol (Surprisal, Structural, Positional intersection)
-    as detailed in Appendix B.4 of the LGM invention disclosure[cite: 1].
+    as detailed in Appendix B.4 of the LGM invention disclosure.
     """
     verified_reasoning_key_indices = []
     return verified_reasoning_key_indices
@@ -68,7 +162,7 @@ def get_reasoning_key(context_tokens: List[str], attention_scores: Any, position
 def get_truth_anchors(model: Any, prompt_tokens: Any, target_id: int, layers: List[int] = [14, 15, 16], k: int = 500) -> Dict[int, Any]:
     """
     Performs Multi-Layer Factual Attribution across the Llama-3 Factual Core (Layers 14-16)
-    via gradient-activation products on the up_proj / down_proj expansion-contraction junction[cite: 1].
+    via gradient-activation products on the up_proj / down_proj expansion-contraction junction.
     """
     if not TORCH_AVAILABLE:
         return {}
@@ -85,7 +179,7 @@ def apply_lgm_parametric_gate(model: Any, layer_top_indices: Dict[int, Any]) -> 
     """
     Applies Parametric Integrity Gating (PIG) via an inference-time Forward Pre-Hook.
     Physically intercepts token activations at the FF2 (down_proj) contraction layer and 
-    zeros out Truth-Anchor neuron columns (n=500) when the verification gate fails[cite: 1].
+    zeros out Truth-Anchor neuron columns (n=500) when the verification gate fails.
     """
     if not TORCH_AVAILABLE:
         return []

@@ -76,6 +76,7 @@
         section_header: string;
         exact_match: string;
         multi_hop_context: string;
+        text_content?: string;
     }
 
     interface AuditAlert {
@@ -148,6 +149,32 @@
         }
     }
 
+    async function submitRLHFFeedback(alertId: string, feedbackScore: number) {
+        // Remove the specific alert from the UI instantly
+        contradictionAlerts = contradictionAlerts.filter(a => a.target_node_id !== alertId);
+        
+        // Log telemetry
+        logTelemetry('rlhf_feedback_submitted', { 
+            alert_id: alertId, 
+            score: feedbackScore,
+            action: feedbackScore < 0 ? 'False Positive (Dismissed)' : 'True Positive (Accepted)'
+        });
+        
+        // Trigger the neural tuning backend route
+        try {
+            await fetch('http://127.0.0.1:8000/api/v1/neural/rlhf-tune', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    current_djs_threshold: 0.6,
+                    expert_feedback_score: feedbackScore
+                })
+            });
+        } catch (e) {
+            console.error("Failed to submit RLHF tuning data.", e);
+        }
+    }
+
     // Mode 1: Multi-Hop Keyword / Natural Language Search
     async function searchGraph() {
         if (!searchQuery.trim()) return;
@@ -155,12 +182,69 @@
         isSearching = true;
         errorMessage = null;
 
+        // Reset old state on new search
+        contradictionAlerts = [];
+        compressionData = null;
+        nodeData = null; // Clear micro-view when executing a new macro search
+
         try {
             const response = await fetch(`http://127.0.0.1:8000/api/v1/graph/search?query=${encodeURIComponent(searchQuery.trim())}&limit=5`);
             if (!response.ok) throw new Error(`Search failed with HTTP ${response.status}`);
             
             const data = await response.json();
             searchResults = data.matches || [];
+            
+            // 1. Bind REA audit results from search to the Entropy Card UI
+            if (data.rea_audit && data.rea_audit.metrics) {
+                let neuralReport = undefined;
+                
+                // Trigger the SIP prediction if Auto-Pilot is active during macro search
+                if (autoPilotActive) {
+                    try {
+                        const neuralResponse = await fetch('http://127.0.0.1:8000/api/v1/neural/sip-prediction', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                text_content: data.matches.map((m: any) => m.text_content).join(' '),
+                                shannon_entropy: data.rea_audit.shannon_entropy,
+                                confidence_threshold: confidenceThreshold
+                            })
+                        });
+                        if (neuralResponse.ok) {
+                            neuralReport = await neuralResponse.json();
+                        }
+                    } catch (e) {
+                        console.error("Neural SIP fetch failed:", e);
+                    }
+                }
+
+                compressionData = {
+                    shannon_entropy: data.rea_audit.shannon_entropy,
+                    original_length: data.rea_audit.metrics.raw_tokens,
+                    compressed_length: data.rea_audit.metrics.pruned_tokens,
+                    c2k_ratio: data.rea_audit.metrics.context_compression_ratio,
+                    pruned_text: data.rea_audit.retained_nodes.map((n: any) => n.text_content).join(' '),
+                    metrics: data.rea_audit.metrics,
+                    retained_nodes: data.rea_audit.retained_nodes,
+                    neural_sip: neuralReport
+                };
+            }
+
+            // 2. Wire Ontological Critic friction directly into the Red Alert UI
+            if (data.ontological_critic_audit && data.ontological_critic_audit.cross_provision_probes) {
+                const newAlerts = data.ontological_critic_audit.cross_provision_probes
+                    .filter((probe: any) => !probe.is_harmonious)
+                    .map((probe: any) => ({
+                        target_node_id: `${probe.node_pair[0]} ➔ ${probe.node_pair[1]}`, // Shows which two nodes clashed
+                        d_js_score: probe.d_js_score,
+                        status: probe.status
+                    }));
+                
+                if (newAlerts.length > 0) {
+                    contradictionAlerts = [...newAlerts, ...contradictionAlerts];
+                }
+            }
+
             logTelemetry('graph_search', { query: searchQuery.trim(), match_count: searchResults.length });
         } catch (err: any) {
             errorMessage = err.message || 'Failed to search graph database.';
@@ -361,7 +445,7 @@
             <!-- Mode 2 Real-Time WebSocket Alerts -->
             {#if contradictionAlerts.length > 0}
                 <div class="max-w-4xl mx-auto mb-6 p-4 bg-red-950/40 border border-red-600/60 rounded-xl text-red-200 shadow-lg">
-                    <div class="flex items-center justify-between mb-2">
+                    <div class="flex items-center justify-between mb-3">
                         <div class="flex items-center gap-2 text-red-400 font-bold uppercase text-xs tracking-wider">
                             <span class="relative flex h-2 w-2">
                               <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
@@ -369,16 +453,37 @@
                             </span>
                             Mode 2 Alert: Autonomous Semantic Violation
                         </div>
-                        <button on:click={() => contradictionAlerts = []} class="text-xs text-red-400 hover:text-red-200 underline">
-                            Clear Alerts
+                        <button on:click={() => contradictionAlerts = []} class="text-xs text-red-400 hover:text-red-300 underline">
+                            Clear All Alerts
                         </button>
                     </div>
-                    <div class="flex flex-col gap-1.5">
+                    <div class="flex flex-col gap-2">
                         {#each contradictionAlerts as alert}
-                            <div class="text-xs font-mono bg-red-900/30 p-2 rounded border border-red-800/40 flex justify-between">
-                                <span>Target: <b>{alert.target_node_id}</b></span>
-                                <span>Jensen-Shannon Divergence Score: <b>{alert.d_js_score}</b></span>
-                                <span class="text-red-400">{alert.status}</span>
+                            <div class="text-xs font-mono bg-red-900/30 p-3 rounded border border-red-800/40 flex flex-col gap-2">
+                                <div class="flex justify-between items-start">
+                                    <div class="flex flex-col gap-1">
+                                        <span>Target: <b class="text-white">{alert.target_node_id}</b></span>
+                                        <span>Jensen-Shannon Divergence Score: <b class="text-amber-400">{alert.d_js_score}</b></span>
+                                    </div>
+                                    <span class="text-red-400 font-bold">{alert.status}</span>
+                                </div>
+                                
+                                <!-- RLHF Human-in-the-Loop Feedback Buttons -->
+                                <div class="flex gap-2 mt-1 pt-2 border-t border-red-900/50">
+                                    <span class="text-[10px] text-gray-500 uppercase flex items-center mr-2">RLHF Tuning:</span>
+                                    <button 
+                                        on:click={() => submitRLHFFeedback(alert.target_node_id, -1.0)} 
+                                        class="text-[10px] bg-red-950 hover:bg-red-900 text-red-300 px-3 py-1 rounded border border-red-800/50 transition-colors"
+                                    >
+                                        Dismiss (False Positive)
+                                    </button>
+                                    <button 
+                                        on:click={() => submitRLHFFeedback(alert.target_node_id, 1.0)} 
+                                        class="text-[10px] bg-emerald-950 hover:bg-emerald-900 text-emerald-300 px-3 py-1 rounded border border-emerald-800/50 transition-colors"
+                                    >
+                                        Accept (True Positive)
+                                    </button>
+                                </div>
                             </div>
                         {/each}
                     </div>
@@ -388,6 +493,13 @@
             {#if errorMessage}
                 <div class="max-w-4xl mx-auto p-4 mb-6 bg-red-950/50 border border-red-800 rounded-lg text-red-300 text-sm flex items-center gap-3">
                     <span class="font-bold">Error:</span> {errorMessage}
+                </div>
+            {/if}
+
+            <!-- MACRO SCOPE: Global Entropy Audit Metrics -->
+            {#if compressionData && !integrityData?.honest_ignorance_triggered}
+                <div class="max-w-4xl mx-auto mb-6">
+                    <EntropyCard {compressionData} />
                 </div>
             {/if}
 
@@ -443,10 +555,6 @@
                         {nodeData} 
                         isLocked={integrityData?.honest_ignorance_triggered ?? false} 
                     />
-
-                    {#if compressionData && !integrityData?.honest_ignorance_triggered}
-                        <EntropyCard {compressionData} />
-                    {/if}
                 </div>
             {:else if searchResults.length === 0}
                 <div class="max-w-4xl mx-auto flex flex-col items-center justify-center h-full text-center py-16">

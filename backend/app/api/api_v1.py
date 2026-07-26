@@ -73,6 +73,14 @@ class NeuralSIPReport(BaseModel):
     efficiency_gain_pct: float
     policy_status: str
 
+class RLHFTunePayload(BaseModel):
+    current_djs_threshold: float = 0.6
+    expert_feedback_score: float
+
+class RLHFTuneReport(BaseModel):
+    new_djs_threshold: float
+    status: str
+
 @api_router.get("/status", tags=["System Health"])
 async def system_status():
     return {"message": "Occo AI Semantic Firewall is online and routing correctly."}
@@ -162,14 +170,29 @@ async def run_neural_sip_prediction(payload: NeuralSIPPayload):
     report = predict_sufficient_information_point(token_len, payload.shannon_entropy, payload.confidence_threshold)
     return NeuralSIPReport(**report)
 
+@api_router.post("/neural/rlhf-tune", response_model=RLHFTuneReport, tags=["Neural Controller"])
+async def run_rlhf_tuning(payload: RLHFTunePayload):
+    """
+    Processes human-in-the-loop feedback to dynamically tune the D_JS 
+    sensitivity threshold based on expert resolutions.
+    """
+    new_threshold = apply_rlhf_threshold_tuning(
+        payload.current_djs_threshold, 
+        payload.expert_feedback_score
+    )
+    return RLHFTuneReport(
+        new_djs_threshold=new_threshold,
+        status="SUCCESS: D_JS threshold dynamically tuned via RLHF."
+    )
+
 @api_router.get("/graph/search", tags=["Graph Retrieval"])
 async def search_graph(query: str, limit: int = 5):
     """
-    Mode 1 Q&A Search Entrypoint: Performs semantic/keyword search across ingested graph chunks,
-    returning matching node IDs, text content, and their structural section headers.
+    Mode 1 Q&A Search Entrypoint: Performs semantic vector search across ingested graph chunks,
+    runs the candidates through REA (Recursive Entropy Audit), and returns matched nodes and audit metrics.
     """
-    matches = search_graph_by_query(query, limit)
-    return {"query": query, "matches_count": len(matches), "matches": matches}
+    search_output = search_graph_by_query(query, limit)
+    return search_output
 
 @api_router.get(
     "/graph/node/{node_id}", 

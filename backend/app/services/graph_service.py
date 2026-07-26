@@ -2,6 +2,8 @@ from typing import Dict, Any, List
 from neo4j.exceptions import Neo4jError, ServiceUnavailable
 from app.core.neo4j import neo4j_connector
 from sentence_transformers import SentenceTransformer
+from app.services.rea_auditor import execute_recursive_entropy_audit, calculate_shannon_entropy
+from app.services.ontological_critic import calculate_jensen_shannon_divergence
 
 # Initialize local lightweight open-source embedding model (runs completely offline)
 embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -76,33 +78,46 @@ def fetch_node_with_provenance(node_id: str) -> Dict[str, Any]:
         return fallback_mock
 
 
-def search_graph_by_query(query_text: str, limit: int = 5) -> List[Dict[str, Any]]:
+def search_graph_by_query(query_text: str, limit: int = 5, js_conflict_threshold: float = 0.6) -> Dict[str, Any]:
     """
-    Performs hybrid Vector Similarity + Multi-Hop Graph Traversal.
-    Converts query to embedding vector and finds top K closest nodes in Neo4j.
+    Unified Dual-Invention Retrieval Pipeline:
+    1. Performs Vector Similarity mapped against Ontological Weighting (w).
+    2. Runs Invention 1: REA (Recursive Entropy Audit) for Pruning.
+    3. Runs Invention 2: Ontological Critic to detect logical friction.
+    4. Executes Automated Self-Correction Router to fill topological gaps if friction is found.
     """
     try:
         query_vector = get_text_embedding(query_text)
         driver = neo4j_connector.get_driver()
         
-        # Cypher Vector Query using Neo4j vector index
+        # INVENTION REQUIREMENT 2: Ontological Document Weighting (w)
+        # Authoritative 'Articles' receive weight=0.9, 'Recitals' get 0.6. 
+        # Ranking is calculated as (vector_score * ontological_weight)
         cypher = """
         CALL db.index.vector.queryNodes('chunkEmbedding', $limit, $query_vector)
         YIELD node AS c, score
         OPTIONAL MATCH (s:Section)-[:HAS_CHUNK]->(c)
         OPTIONAL MATCH (c)-[:NEXT]->(next_c:DocumentChunk)
         OPTIONAL MATCH (prev_c:DocumentChunk)-[:NEXT]->(c)
+        WITH c, score, s, next_c, prev_c,
+             CASE WHEN 'Article' IN labels(c) THEN 0.9 
+                  WHEN 'Recital' IN labels(c) THEN 0.6 
+                  ELSE 0.5 END AS ontological_weight
         RETURN c.node_id AS node_id,
                c.text_content AS text_content,
+               labels(c) AS labels,
                coalesce(s.name, "Document Preamble") AS section_header,
                prev_c.text_content AS prev_content,
                next_c.text_content AS next_content,
-               score
-        ORDER BY score DESC
+               score,
+               ontological_weight
+        ORDER BY (score * ontological_weight) DESC
         """
         with driver.session() as session:
             records = session.run(cypher, query_vector=query_vector, limit=limit)
+            raw_candidates = []
             results = []
+            
             for r in records:
                 enriched_text = ""
                 if r["prev_content"]: 
@@ -113,21 +128,101 @@ def search_graph_by_query(query_text: str, limit: int = 5) -> List[Dict[str, Any
                 if r["next_content"]: 
                     enriched_text += f"[NEXT PARAGRAPH]: {r['next_content']}"
                 
-                results.append({
+                node_item = {
                     "node_id": r["node_id"],
+                    "text_content": r["text_content"],
+                    "labels": r["labels"] or ["Article"],
                     "section_header": r["section_header"],
-                    "exact_match": r["text_content"],
                     "multi_hop_context": enriched_text.strip(),
-                    "similarity_score": round(float(r["score"]), 4)
-                })
-            return results
+                    "similarity_score": round(float(r["score"]), 4),
+                    "ontological_weight": float(r["ontological_weight"])
+                }
+                raw_candidates.append(node_item)
+                results.append(node_item)
+
+            # ---------------------------------------------------------
+            # INVENTION 1: Recursive Entropy Audit (REA)
+            # ---------------------------------------------------------
+            rea_audit_result = execute_recursive_entropy_audit(raw_candidates)
+            aggregate_text = " ".join([n["text_content"] for n in raw_candidates])
+            baseline_entropy = calculate_shannon_entropy(aggregate_text)
+
+            # ---------------------------------------------------------
+            # INVENTION 2: Ontological Critic ($D_{JS}$ Probe)
+            # ---------------------------------------------------------
+            critic_audit_logs = []
+            friction_detected = False
+            conflicting_nodes = []
+            
+            if len(raw_candidates) >= 2:
+                for i in range(len(raw_candidates) - 1):
+                    text_a = raw_candidates[i]["text_content"]
+                    text_b = raw_candidates[i+1]["text_content"]
+                    djs_score = calculate_jensen_shannon_divergence(text_a, text_b)
+                    
+                    is_harmonious = djs_score <= js_conflict_threshold
+                    if not is_harmonious:
+                        friction_detected = True
+                        conflicting_nodes.append(raw_candidates[i]["node_id"])
+                        
+                    critic_audit_logs.append({
+                        "node_pair": (raw_candidates[i]["node_id"], raw_candidates[i+1]["node_id"]),
+                        "d_js_score": djs_score,
+                        "is_harmonious": is_harmonious,
+                        "status": "PASSED: Harmonious" if is_harmonious else "FAILED: Logical Contradiction Detected."
+                    })
+
+            # ---------------------------------------------------------
+            # REQUIREMENT 3: Automated Self-Correction Router
+            # If D_JS flags friction, execute re-traversal to fetch interpretive context
+            # ---------------------------------------------------------
+            if friction_detected and conflicting_nodes:
+                healing_cypher = """
+                UNWIND $node_ids AS nid
+                MATCH (c {node_id: nid})<-[:HAS_CHUNK]-(s:Section)-[:HAS_CHUNK]->(sibling)
+                WHERE sibling.node_id <> nid 
+                RETURN DISTINCT sibling.node_id AS node_id, 
+                                sibling.text_content AS text_content, 
+                                labels(sibling) AS labels, 
+                                s.name AS section_header 
+                LIMIT 2
+                """
+                healing_records = session.run(healing_cypher, node_ids=conflicting_nodes)
+                for hr in healing_records:
+                    healed_item = {
+                        "node_id": hr["node_id"],
+                        "text_content": hr["text_content"],
+                        "labels": hr["labels"] or ["Recital"],
+                        "section_header": hr["section_header"],
+                        "multi_hop_context": f"[SELF-CORRECTION ROUTER INJECTED CONTEXT]:\n{hr['text_content']}",
+                        "similarity_score": 1.0,
+                        "ontological_weight": 0.9
+                    }
+                    results.append(healed_item)
+
+            return {
+                "query": query_text,
+                "matches_count": len(results),
+                "matches": results,
+                "rea_audit": {
+                    "shannon_entropy": baseline_entropy,
+                    "metrics": rea_audit_result["metrics"],
+                    "retained_nodes": rea_audit_result["retained_nodes"]
+                },
+                "ontological_critic_audit": {
+                    "threshold_used": js_conflict_threshold,
+                    "cross_provision_probes": critic_audit_logs,
+                    "self_correction_triggered": friction_detected
+                }
+            }
+            
     except Exception as e:
-        print(f"Vector search fallback to lexical matching due to: {e}")
-        # Fallback to lexical containment if index is still building
-        return _fallback_lexical_search(query_text, limit)
+        print(f"Vector search fallback due to: {e}")
+        return _fallback_lexical_search_with_rea(query_text, limit, js_conflict_threshold)
 
 
-def _fallback_lexical_search(query_text: str, limit: int = 5) -> List[Dict[str, Any]]:
+def _fallback_lexical_search_with_rea(query_text: str, limit: int = 5, js_conflict_threshold: float = 0.6) -> Dict[str, Any]:
+    """Fallback search implementing basic REA without weighting or automated re-traversal."""
     try:
         driver = neo4j_connector.get_driver()
         cypher = """
@@ -138,6 +233,7 @@ def _fallback_lexical_search(query_text: str, limit: int = 5) -> List[Dict[str, 
         OPTIONAL MATCH (prev_c:DocumentChunk)-[:NEXT]->(c)
         RETURN c.node_id AS node_id,
                c.text_content AS text_content,
+               labels(c) AS labels,
                coalesce(s.name, "Document Preamble") AS section_header,
                prev_c.text_content AS prev_content,
                next_c.text_content AS next_content
@@ -145,7 +241,9 @@ def _fallback_lexical_search(query_text: str, limit: int = 5) -> List[Dict[str, 
         """
         with driver.session() as session:
             records = session.run(cypher, query_text=query_text, limit=limit)
+            raw_candidates = []
             results = []
+            
             for r in records:
                 enriched_text = ""
                 if r["prev_content"]: 
@@ -156,15 +254,51 @@ def _fallback_lexical_search(query_text: str, limit: int = 5) -> List[Dict[str, 
                 if r["next_content"]: 
                     enriched_text += f"[NEXT PARAGRAPH]: {r['next_content']}"
                 
-                results.append({
+                node_item = {
                     "node_id": r["node_id"],
+                    "text_content": r["text_content"],
+                    "labels": r["labels"] or ["Article"],
                     "section_header": r["section_header"],
-                    "exact_match": r["text_content"],
                     "multi_hop_context": enriched_text.strip()
-                })
-            return results
+                }
+                raw_candidates.append(node_item)
+                results.append(node_item)
+
+            rea_audit_result = execute_recursive_entropy_audit(raw_candidates)
+            aggregate_text = " ".join([n["text_content"] for n in raw_candidates])
+            baseline_entropy = calculate_shannon_entropy(aggregate_text)
+
+            critic_audit_logs = []
+            if len(raw_candidates) >= 2:
+                for i in range(len(raw_candidates) - 1):
+                    text_a = raw_candidates[i]["text_content"]
+                    text_b = raw_candidates[i+1]["text_content"]
+                    djs_score = calculate_jensen_shannon_divergence(text_a, text_b)
+                    is_harmonious = djs_score <= js_conflict_threshold
+                    critic_audit_logs.append({
+                        "node_pair": (raw_candidates[i]["node_id"], raw_candidates[i+1]["node_id"]),
+                        "d_js_score": djs_score,
+                        "is_harmonious": is_harmonious,
+                        "status": "PASSED: Harmonious" if is_harmonious else "FAILED: Logical Contradiction Detected."
+                    })
+
+            return {
+                "query": query_text,
+                "matches_count": len(results),
+                "matches": results,
+                "rea_audit": {
+                    "shannon_entropy": baseline_entropy,
+                    "metrics": rea_audit_result["metrics"],
+                    "retained_nodes": rea_audit_result["retained_nodes"]
+                },
+                "ontological_critic_audit": {
+                    "threshold_used": js_conflict_threshold,
+                    "cross_provision_probes": critic_audit_logs,
+                    "self_correction_triggered": False
+                }
+            }
     except Exception:
-        return []
+        return {"query": query_text, "matches_count": 0, "matches": [], "rea_audit": {}, "ontological_critic_audit": {}}
 
 
 def initialize_vector_index():
@@ -172,7 +306,6 @@ def initialize_vector_index():
     try:
         driver = neo4j_connector.get_driver()
         with driver.session() as session:
-            # Drop the old 1536-dimensional index if it exists to prevent mismatch errors
             session.run("DROP INDEX chunkEmbedding IF EXISTS")
             session.run("""
                 CREATE VECTOR INDEX chunkEmbedding IF NOT EXISTS
@@ -189,7 +322,6 @@ def save_chunks_to_neo4j(validated_nodes: List[Dict[str, Any]], doc_name: str = 
     """
     initialize_vector_index()
     
-    # Generate local embeddings for each node payload
     for node in validated_nodes:
         node["embedding"] = get_text_embedding(node.get("text_content", ""))
 
