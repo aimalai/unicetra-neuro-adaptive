@@ -89,7 +89,7 @@
 
     // State management & Session Tracking for DREPT Telemetry
     let sessionId: string = 'session_' + Math.random().toString(36).substring(2, 9);
-    let nodeId: string = 'chunk_0117';
+    let nodeId: string = '';
     let searchQuery: string = '';
     let searchResults: SearchMatch[] = [];
     let contradictionAlerts: AuditAlert[] = [];

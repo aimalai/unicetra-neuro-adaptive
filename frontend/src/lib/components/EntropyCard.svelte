@@ -34,17 +34,30 @@
     }
 
     export let compressionData: CompressionResult;
+
+    let showInspectionDrawer: boolean = false;
 </script>
 
-<div class="bg-slate-900/60 border border-slate-700/60 rounded-xl p-6 shadow-lg animate-fade-in mb-6">
-    <div class="flex items-center justify-between mb-4">
-        <h3 class="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            Recursive Entropy Audit (REA) Executed
-        </h3>
-        <span class="text-xs font-mono text-gray-500">Cumulative D_KL Filter</span>
+<div class="bg-slate-900/60 border border-slate-700/60 rounded-xl p-6 shadow-lg animate-fade-in mb-6 font-sans">
+    <div class="flex items-center justify-between mb-4 pb-4 border-b border-gray-800">
+        <div class="flex items-center gap-2">
+            <span class="h-2.5 w-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <h3 class="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-2 font-mono">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                Recursive Entropy Audit (REA) Executed
+            </h3>
+        </div>
+        <div class="flex items-center gap-3">
+            <span class="text-xs font-mono text-gray-500">Cumulative D_KL Filter</span>
+            <button 
+                on:click={() => showInspectionDrawer = !showInspectionDrawer}
+                class="text-[11px] font-mono bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 px-3 py-1 rounded border border-emerald-800/60 transition-colors cursor-pointer"
+            >
+                {showInspectionDrawer ? '✕ Close Filtration Inspector' : '🔍 View Pruned Boilerplate vs. Gold Nuggets'}
+            </button>
+        </div>
     </div>
     
     <!-- Neural Auto-Pilot Status Banner (If active) -->
@@ -78,6 +91,41 @@
             </p>
         </div>
     </div>
+
+    <!-- Expandable Side-by-Side Filtration Inspector Drawer -->
+    {#if showInspectionDrawer}
+        <div class="mt-4 mb-4 pt-4 border-t border-gray-800 grid grid-cols-2 gap-4 animate-fadeIn">
+            <!-- Discarded Semantic Noise -->
+            <div class="bg-red-950/20 border border-red-900/40 rounded-xl p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-[11px] font-bold text-red-400 uppercase tracking-wider font-mono">
+                        🗑 Discarded Semantic Noise (Boilerplate)
+                    </span>
+                    <span class="text-[10px] font-mono bg-red-950 text-red-300 px-2 py-0.5 rounded border border-red-800/50">
+                        {Math.max(0, compressionData.original_length - compressionData.compressed_length)} tokens pruned
+                    </span>
+                </div>
+                <div class="bg-gray-950 p-3 rounded-lg border border-gray-800 h-36 overflow-y-auto font-mono text-[11px] text-gray-400 leading-relaxed">
+                    [INFO: Low-density introductory fluff, transitional clauses, and redundant preamble filtered out via Shannon entropy thresholding prior to downstream LLM injection.]
+                </div>
+            </div>
+
+            <!-- Retained High-Density Gold Nuggets -->
+            <div class="bg-emerald-950/20 border border-emerald-900/40 rounded-xl p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-[11px] font-bold text-emerald-400 uppercase tracking-wider font-mono">
+                        ✨ Retained High-Density "Gold Nuggets"
+                    </span>
+                    <span class="text-[10px] font-mono bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded border border-emerald-800/50">
+                        {compressionData.compressed_length} tokens retained
+                    </span>
+                </div>
+                <div class="bg-gray-950 p-3 rounded-lg border border-gray-800 h-36 overflow-y-auto font-mono text-[11px] text-gray-200 leading-relaxed">
+                    {compressionData.pruned_text || "No retained node text currently mapped."}
+                </div>
+            </div>
+        </div>
+    {/if}
 
     <!-- Extended Operational Metrics Row -->
     {#if compressionData.metrics}

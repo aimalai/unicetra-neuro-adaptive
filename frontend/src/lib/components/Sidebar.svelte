@@ -59,7 +59,7 @@
                 type="text" 
                 bind:value={searchQuery}
                 on:keydown={(e) => e.key === 'Enter' && dispatch('search')}
-                placeholder="Query term (e.g. high-risk AI)" 
+                placeholder="Enter natural language query" 
                 class="w-full bg-gray-900 border border-gray-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all placeholder:text-gray-600 font-mono" 
             />
             
@@ -113,7 +113,7 @@
                     type="text" 
                     bind:value={nodeId}
                     on:keydown={(e) => e.key === 'Enter' && dispatch('fetch')}
-                    placeholder="Node ID (chunk_0117)" 
+                    placeholder="Select node ID from results..." 
                     class="w-full bg-gray-900 border border-gray-700 rounded-md px-3 py-2 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all placeholder:text-gray-600 font-mono" 
                 />
                 <button 
@@ -129,6 +129,7 @@
                 </button>
             </div>
 
+            <!-- PIG Tolerance Slider with Live Feedback Impact Indicator -->
             <div class="mt-1 mb-1">
                 <div class="flex items-center justify-between mb-2">
                     <span class="text-[10px] text-gray-400 uppercase font-bold tracking-wide">PIG Tolerance (3-Fan)</span>
@@ -136,13 +137,26 @@
                         {confidenceThreshold.toFixed(2)}
                     </span>
                 </div>
+                
                 <input 
                     type="range" 
                     min="0.50" max="0.99" step="0.01" 
                     bind:value={confidenceThreshold}
                     on:change={handleSliderChange}
-                    class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                    class="w-full h-1 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500 mb-2"
                 />
+
+                <!-- Live Firewall Sensitivity State Badge -->
+                <div class="flex items-center justify-between bg-gray-950 px-2.5 py-1.5 rounded-md border border-gray-800 font-mono text-[10px]">
+                    <span class="text-gray-500">Firewall Mode:</span>
+                    {#if confidenceThreshold < 0.70}
+                        <span class="text-amber-400 font-bold">⚠️ Permissive Mode (High Pass)</span>
+                    {:else if confidenceThreshold < 0.90}
+                        <span class="text-indigo-300 font-bold">⚖️ Balanced Enterprise Enforcement</span>
+                    {:else}
+                        <span class="text-emerald-400 font-bold">🔒 Strict Zero-Tolerance Enforcement</span>
+                    {/if}
+                </div>
             </div>
 
             <button 
