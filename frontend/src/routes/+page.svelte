@@ -111,6 +111,38 @@
     let isProbing: boolean = false;
     let errorMessage: string | null = null;
 
+    let isGeneratingLLM: boolean = false;
+    let llmResponseText: string | null = null;
+
+    async function generateLLMSynthesis() {
+        if (!compressionData || !compressionData.pruned_text) return;
+
+        isGeneratingLLM = true;
+        llmResponseText = null;
+        errorMessage = null;
+
+        try { 
+            const response = await fetch('https://0466-34-145-125-124.ngrok-free.app/api/v1/llm/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    prompt: compressionData.pruned_text, // High-density gold nuggets passed to Llama
+                    system_instruction: "Analyze the compliance risks based strictly on the provided provenance text."
+                })
+            });
+
+            if (!response.ok) throw new Error(`LLM Generation failed with HTTP ${response.status}`);
+            
+            const data = await response.json();
+            llmResponseText = data.generated_text;
+            logTelemetry('llm_synthesis_generated', { length: llmResponseText?.length });
+        } catch (err: any) {
+            errorMessage = err.message || 'Failed to connect to Colab LLM bridge.';
+        } finally {
+            isGeneratingLLM = false;
+        }
+    }
+
     // Connect WebSocket for Mode 2 Background Auditing Alerts
     onMount(() => {
         let ws: WebSocket | null = null;
@@ -177,7 +209,6 @@
             searchResults = searchResults.filter(match => !chunkIdsInAlert.includes(match.node_id));
         } else {
             // DISMISS (False Positive): Auditor says it's safe. Keep it in search results, but adapt entropy metrics.
-            // No need to delete from searchResults since it's a valid node.
         }
 
         // 3. Live REA Computational Reaction
@@ -220,6 +251,7 @@
         // Reset old state on new search
         contradictionAlerts = [];
         compressionData = null;
+        llmResponseText = null; // <-- clears previous LLM synthesis output
         nodeData = null; // Clear micro-view when executing a new macro search
 
         try {
@@ -535,10 +567,15 @@
                 </div>
             {/if}
 
-            <!-- MACRO SCOPE: Global Entropy Audit Metrics -->
+            <!-- MACRO SCOPE: Global Entropy Audit Metrics & LLM Bridge -->
             {#if compressionData && !integrityData?.honest_ignorance_triggered}
                 <div class="max-w-4xl mx-auto mb-6">
-                    <EntropyCard {compressionData} />
+                    <EntropyCard 
+                        {compressionData} 
+                        {isGeneratingLLM}
+                        {llmResponseText}
+                        {generateLLMSynthesis}
+                    />
                 </div>
             {/if}
 
