@@ -1,6 +1,8 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
+    import { onMount, tick } from 'svelte';
+    import { fade } from 'svelte/transition';
     import Sidebar from '$lib/components/Sidebar.svelte';
+    import CommandDeck from '$lib/components/CommandDeck.svelte';
     import NodePayload from '$lib/components/NodePayload.svelte';
     import IntegrityCard from '$lib/components/IntegrityCard.svelte';
     import EntropyCard from '$lib/components/EntropyCard.svelte';
@@ -114,6 +116,27 @@
     let isGeneratingLLM: boolean = false;
     let llmResponseText: string | null = null;
 
+    // Targeted DOM Elements for Auto-Scrolling
+    let mainScrollContainer: HTMLElement;
+    let payloadContainer: HTMLElement;
+    let integrityContainer: HTMLElement;
+    let criticContainer: HTMLElement;
+
+    // Sleek System Notification State
+    let systemNotification: { message: string, type: 'info' | 'success' } | null = null;
+
+    function scrollTargetIntoView(element: HTMLElement | undefined) {
+        if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    }
+
+    function scrollToTop() {
+        if (mainScrollContainer) {
+            mainScrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }
+
     async function generateLLMSynthesis() {
         if (!compressionData || !compressionData.pruned_text) return;
 
@@ -126,7 +149,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    prompt: compressionData.pruned_text, // High-density gold nuggets passed to Llama
+                    prompt: compressionData.pruned_text,
                     system_instruction: "Analyze the compliance risks based strictly on the provided provenance text."
                 })
             });
@@ -143,7 +166,6 @@
         }
     }
 
-    // Connect WebSocket for Mode 2 Background Auditing Alerts
     onMount(() => {
         let ws: WebSocket | null = null;
         try {
@@ -165,7 +187,6 @@
         };
     });
 
-    // Helper function to dispatch HCI telemetry events to FastAPI
     async function logTelemetry(eventType: string, metadata: Record<string, any> = {}) {
         try {
             await fetch('http://127.0.0.1:8000/api/v1/telemetry/log', {
@@ -186,7 +207,6 @@
     async function submitRLHFFeedback(alertId: string, feedbackScore: number) {
         const isDismissed = feedbackScore < 0;
 
-        // 1. Visual state transition for the alert
         contradictionAlerts = contradictionAlerts.map(a => {
             if (a.target_node_id === alertId) {
                 return { 
@@ -201,19 +221,14 @@
             contradictionAlerts = contradictionAlerts.filter(a => a.target_node_id !== alertId);
         }, 1000);
 
-        // 2. Target Chunk Extraction
         const chunkIdsInAlert = alertId.split('➔').map(s => s.trim());
 
         if (!isDismissed) {
-            // ACCEPT (True Positive): Confirmed violation. Purge chunk from search results permanently.
             searchResults = searchResults.filter(match => !chunkIdsInAlert.includes(match.node_id));
-        } else {
-            // DISMISS (False Positive): Auditor says it's safe. Keep it in search results, but adapt entropy metrics.
         }
 
-        // 3. Live REA Computational Reaction
         if (compressionData && compressionData.metrics) {
-            const tokenDelta = isDismissed ? -4 : 8; // Dismiss recovers tokens; Accept purges them
+            const tokenDelta = isDismissed ? -4 : 8;
             compressionData = {
                 ...compressionData,
                 compressed_length: Math.max(10, compressionData.compressed_length + tokenDelta),
@@ -224,7 +239,6 @@
             };
         }
         
-        // Log telemetry and trigger backend tuning...
         logTelemetry('rlhf_feedback_submitted', { alert_id: alertId, score: feedbackScore });
         
         try {
@@ -241,18 +255,22 @@
         }
     }
    
-    // Mode 1: Multi-Hop Keyword / Natural Language Search
     async function searchGraph() {
         if (!searchQuery.trim()) return;
         
         isSearching = true;
         errorMessage = null;
 
-        // Reset old state on new search
         contradictionAlerts = [];
         compressionData = null;
-        llmResponseText = null; // <-- clears previous LLM synthesis output
-        nodeData = null; // Clear micro-view when executing a new macro search
+        llmResponseText = null; 
+        nodeData = null;
+        integrityData = null;
+        criticData = null;
+        systemNotification = null;
+        nodeId = ''; 
+
+        scrollToTop();
 
         try {
             const response = await fetch(`http://127.0.0.1:8000/api/v1/graph/search?query=${encodeURIComponent(searchQuery.trim())}&limit=5`);
@@ -261,11 +279,9 @@
             const data = await response.json();
             searchResults = data.matches || [];
             
-            // 1. Bind REA audit results from search to the Entropy Card UI
             if (data.rea_audit && data.rea_audit.metrics) {
                 let neuralReport = undefined;
                 
-                // Trigger the SIP prediction if Auto-Pilot is active during macro search
                 if (autoPilotActive) {
                     try {
                         const neuralResponse = await fetch('http://127.0.0.1:8000/api/v1/neural/sip-prediction', {
@@ -297,12 +313,11 @@
                 };
             }
 
-            // 2. Wire Ontological Critic friction directly into the Red Alert UI
             if (data.ontological_critic_audit && data.ontological_critic_audit.cross_provision_probes) {
                 const newAlerts = data.ontological_critic_audit.cross_provision_probes
                     .filter((probe: any) => !probe.is_harmonious)
                     .map((probe: any) => ({
-                        target_node_id: `${probe.node_pair[0]} ➔ ${probe.node_pair[1]}`, // Shows which two nodes clashed
+                        target_node_id: `${probe.node_pair[0]} ➔ ${probe.node_pair[1]}`,
                         d_js_score: probe.d_js_score,
                         status: probe.status
                     }));
@@ -330,7 +345,6 @@
         
         isLoading = true;
         errorMessage = null;
-        compressionData = null; 
         integrityData = null; 
         criticData = null; 
 
@@ -343,6 +357,10 @@
 
             nodeData = await response.json();
             logTelemetry('fetch_provenance', { node_id: nodeId.trim() });
+
+            await tick();
+            setTimeout(() => scrollTargetIntoView(payloadContainer), 50);
+
         } catch (err: any) {
             errorMessage = err.message || 'Failed to fetch provenance data from backend.';
             nodeData = null;
@@ -351,53 +369,32 @@
         }
     }
 
-    async function runCompression() {
+    async function runIntegrityGate() {
         if (!nodeData || !nodeData.text_content) return;
         
-        isCompressing = true;
+        isValidating = true;
         errorMessage = null;
-        integrityData = null; 
+
+        await tick();
+        setTimeout(() => scrollTargetIntoView(integrityContainer), 50);
 
         try {
-            const compResponse = await fetch('http://127.0.0.1:8000/api/v1/compress', {
+            const response = await fetch('http://127.0.0.1:8000/api/v1/validate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
-                    node_id: nodeData.node_id,
                     text_content: nodeData.text_content,
-                    labels: nodeData.labels 
+                    threshold: confidenceThreshold 
                 })
             });
             
-            if (!compResponse.ok) throw new Error(`Compression failed with HTTP ${compResponse.status}`);
-            const compResult: CompressionResult = await compResponse.json();
-
-            let neuralReport: NeuralSIPReport | undefined = undefined;
-            if (autoPilotActive) {
-                const neuralResponse = await fetch('http://127.0.0.1:8000/api/v1/neural/sip-prediction', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        text_content: nodeData.text_content,
-                        shannon_entropy: compResult.shannon_entropy,
-                        confidence_threshold: confidenceThreshold
-                    })
-                });
-                if (neuralResponse.ok) {
-                    neuralReport = await neuralResponse.json();
-                }
-            }
-
-            compressionData = {
-                ...compResult,
-                neural_sip: neuralReport
-            };
-
-            logTelemetry('run_entropy_audit', { auto_pilot: autoPilotActive, c2k_ratio: compResult.c2k_ratio });
+            if (!response.ok) throw new Error(`Validation failed with HTTP ${response.status}`);
+            integrityData = await response.json();
+            logTelemetry('run_integrity_gate', { is_valid: integrityData?.is_valid, threshold: confidenceThreshold });
         } catch (err: any) {
-            errorMessage = err.message || 'Failed to execute entropy audit.';
+            errorMessage = err.message || 'Failed to execute integrity gate.';
         } finally {
-            isCompressing = false;
+            isValidating = false;
         }
     }
 
@@ -406,6 +403,9 @@
 
         isProbing = true;
         errorMessage = null;
+        
+        await tick();
+        setTimeout(() => scrollTargetIntoView(criticContainer), 50);
 
         try {
             const response = await fetch('http://127.0.0.1:8000/api/v1/critic/probe', {
@@ -430,29 +430,117 @@
         }
     }
 
-    async function runIntegrityGate() {
-        if (!nodeData || !nodeData.text_content) return;
+    function handleExciseNode() {
+        if (!nodeData) return;
+        const idToRemove = nodeData.node_id;
         
-        isValidating = true;
-        errorMessage = null;
+        searchResults = searchResults.filter(match => match.node_id !== idToRemove);
+
+        if (compressionData && compressionData.retained_nodes) {
+            compressionData.retained_nodes = compressionData.retained_nodes.filter(n => n.node_id !== idToRemove);
+            compressionData.pruned_text = compressionData.retained_nodes.map(n => n.text_content).join('\n\n');
+            
+            const penalty = 15; 
+            compressionData.compressed_length = Math.max(0, compressionData.compressed_length - penalty);
+            if (compressionData.metrics) {
+                compressionData.metrics.pruned_tokens = compressionData.compressed_length;
+            }
+        }
+
+        logTelemetry('node_excised_from_synthesis', { node_id: idToRemove });
+        
+        nodeData = null;
+        integrityData = null;
+        criticData = null;
+        nodeId = ''; 
+
+        scrollToTop();
+        systemNotification = { 
+            message: `Context Pruning Complete: Node [${idToRemove}] successfully excised from LLM synthesis pipeline.`, 
+            type: 'info' 
+        };
+        setTimeout(() => systemNotification = null, 5000);
+    }
+
+    async function handleMicroRLHF(event: CustomEvent<{score: number}>) {
+        const score = event.detail.score;
+        if (!nodeData) return;
+
+        if (criticData) {
+            criticData = {
+                ...criticData,
+                is_harmonious: score < 0 ? true : false, 
+                status: score < 0 ? 'RESOLVED: Regulatory Nuance (Safe)' : 'CONFIRMED: Logical Clash (Excise Recommended)'
+            };
+        }
+
+        logTelemetry('micro_rlhf_tuning', { node_id: nodeData.node_id, score: score });
 
         try {
-            const response = await fetch('http://127.0.0.1:8000/api/v1/validate', {
+            await fetch('http://127.0.0.1:8000/api/v1/neural/rlhf-tune', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    text_content: nodeData.text_content,
-                    threshold: confidenceThreshold 
+                body: JSON.stringify({
+                    current_djs_threshold: confidenceThreshold,
+                    expert_feedback_score: score,
+                    context: 'micro_inspector_action'
                 })
             });
+        } catch (e) {
+            console.error("Failed to submit micro RLHF.", e);
+        }
+    }
+
+    async function handleFetchParent() {
+        if (!nodeData || !nodeData.parent) return;
+        isSearching = true; 
+
+        try {
+            const parentId = nodeData.parent.parent_id;
+            const response = await fetch(`http://127.0.0.1:8000/api/v1/graph/node/${encodeURIComponent(parentId)}`);
             
-            if (!response.ok) throw new Error(`Validation failed with HTTP ${response.status}`);
-            integrityData = await response.json();
-            logTelemetry('run_integrity_gate', { is_valid: integrityData?.is_valid, threshold: confidenceThreshold });
-        } catch (err: any) {
-            errorMessage = err.message || 'Failed to execute integrity gate.';
+            if (response.ok) {
+                const pData = await response.json();
+                
+                searchResults = [{
+                    node_id: pData.node_id,
+                    section_header: `[Auto-Fetched Structural Parent]`,
+                    exact_match: "Agentic Re-Traversal match mapped...",
+                    multi_hop_context: pData.text_content
+                }, ...searchResults];
+
+                if (compressionData && compressionData.retained_nodes) {
+                    compressionData.retained_nodes = [{
+                        node_id: pData.node_id,
+                        text_content: pData.text_content,
+                        kl_divergence: 0.99,
+                        ontological_weight: 2.0 
+                    }, ...compressionData.retained_nodes];
+                    
+                    compressionData.pruned_text = compressionData.retained_nodes.map(n => n.text_content).join('\n\n');
+                    compressionData.original_length += 100;
+                    compressionData.compressed_length += 100;
+                }
+                
+                logTelemetry('agentic_retraversal', { fetched_parent: parentId });
+                
+                nodeData = null;
+                integrityData = null;
+                criticData = null;
+                nodeId = ''; 
+                
+                scrollToTop();
+
+                systemNotification = { 
+                    message: `Agentic Re-Traversal Complete: Structural parent [${parentId}] securely injected into pipeline.`, 
+                    type: 'success' 
+                };
+                setTimeout(() => systemNotification = null, 5000);
+            }
+        } catch(e: any) {
+            errorMessage = "Failed agentic re-traversal: " + e.message;
         } finally {
-            isValidating = false;
+            isSearching = false;
         }
     }
 
@@ -467,8 +555,24 @@
     }
 </script>
 
-<main class="min-h-screen bg-gray-950 text-gray-200 font-sans selection:bg-indigo-500/30">
-    <header class="border-b border-gray-800 bg-gray-900 px-6 py-4 flex items-center justify-between">
+<style>
+    @keyframes flash-emerald {
+        0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+        50% { box-shadow: 0 0 25px 8px rgba(16, 185, 129, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+    @keyframes flash-amber {
+        0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.6); }
+        50% { box-shadow: 0 0 25px 8px rgba(245, 158, 11, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+    }
+    .flash-emerald { animation: flash-emerald 1.5s ease-out forwards; }
+    .flash-amber { animation: flash-amber 1.5s ease-out forwards; }
+</style>
+
+<main class="flex flex-col h-screen bg-gray-950 text-gray-200 font-sans selection:bg-indigo-500/30 overflow-hidden">
+    
+    <header class="border-b border-gray-800 bg-gray-900 px-6 py-4 flex items-center justify-between shrink-0">
         <div class="flex items-center gap-3">
             <div class="h-8 w-8 rounded bg-indigo-600 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(79,70,229,0.5)]">
                 O
@@ -484,36 +588,37 @@
         </div>
     </header>
 
-    <div class="flex h-[calc(100vh-73px)]">
-        <!-- Modular Sidebar Controls -->
-        <Sidebar 
-            bind:nodeId={nodeId}
-            bind:searchQuery={searchQuery}
-            bind:confidenceThreshold={confidenceThreshold}
-            bind:autoPilotActive={autoPilotActive}
-            bind:evaluationMode={evaluationMode}
-            hasNodeData={!!nodeData}
-            isLoading={isLoading}
-            isSearching={isSearching}
-            isCompressing={isCompressing}
-            isValidating={isValidating}
-            isProbing={isProbing}
-            openDeepLens={() => {
-                console.log("DeepLens button clicked!");
-                isDeepLensOpen = true;
-            }}
-            on:search={searchGraph}
-            on:fetch={fetchProvenance}
-            on:compress={runCompression}
-            on:probe={runCriticProbe}
-            on:validate={runIntegrityGate}
-            on:calibrate={handleCalibration}
-            on:toggleMode={handleModeSwitch}
-        />
+    <!-- NEW: DeepLens is now passed into CommandDeck -->
+    <CommandDeck 
+        bind:searchQuery 
+        bind:autoPilotActive 
+        {isSearching} 
+        on:search={searchGraph} 
+        openDeepLens={() => {
+            console.log("DeepLens button clicked from Command Deck!");
+            isDeepLensOpen = true;
+        }}
+    />
 
-        <!-- Main Visualization Display -->
-        <section class="flex-1 p-8 bg-gray-950 overflow-y-auto">
-            <!-- Mode 2 Real-Time WebSocket Alerts -->
+    <div class="flex flex-1 overflow-hidden">
+        <section bind:this={mainScrollContainer} class="flex-1 p-8 bg-gray-950 overflow-y-auto">
+            
+            {#if systemNotification}
+                <div class="max-w-4xl mx-auto mb-6" transition:fade={{duration: 300}}>
+                    <div class="bg-indigo-900/30 border border-indigo-500/50 rounded-lg p-3 flex items-center justify-between shadow-[0_0_15px_rgba(79,70,229,0.2)]">
+                        <div class="flex items-center gap-3">
+                            <span class="relative flex h-3 w-3">
+                              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                              <span class="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+                            </span>
+                            <span class="text-indigo-200 text-xs font-mono uppercase tracking-wider font-bold">
+                                {systemNotification.message}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            {/if}
+
             {#if contradictionAlerts.length > 0}
                 <div class="max-w-4xl mx-auto mb-6 p-4 bg-red-950/40 border border-red-600/60 rounded-xl text-red-200 shadow-lg">
                     <div class="flex items-center justify-between mb-3">
@@ -539,7 +644,6 @@
                                     <span class="text-red-400 font-bold">{alert.status}</span>
                                 </div>
                                 
-                                <!-- RLHF Human-in-the-Loop Feedback Buttons -->
                                 <div class="flex gap-2 mt-1 pt-2 border-t border-red-900/50">
                                     <span class="text-[10px] text-gray-500 uppercase flex items-center mr-2">RLHF Tuning:</span>
                                     <button 
@@ -567,7 +671,6 @@
                 </div>
             {/if}
 
-            <!-- MACRO SCOPE: Global Entropy Audit Metrics & LLM Bridge -->
             {#if compressionData && !integrityData?.honest_ignorance_triggered}
                 <div class="max-w-4xl mx-auto mb-6">
                     <EntropyCard 
@@ -579,14 +682,13 @@
                 </div>
             {/if}
 
-            <!-- Mode 1 Multi-Hop Search Results Container -->
             {#if searchResults.length > 0}
                 <div class="max-w-4xl mx-auto mb-8">
                     <div class="flex items-center justify-between mb-4">
                         <h3 class="text-sm font-bold text-gray-400 uppercase tracking-wider">
                             Multi-Hop Search Results ({searchResults.length} Matches)
                         </h3>
-                        <button on:click={() => searchResults = []} class="text-xs text-indigo-400 hover:text-indigo-300 underline">
+                        <button on:click={() => searchResults = []} class="text-xs text-indigo-400 hover:text-indigo-300 underline cursor-pointer">
                             Dismiss Search
                         </button>
                     </div>
@@ -612,25 +714,59 @@
             {/if}
             
             {#if nodeData}
-                <div class="max-w-4xl mx-auto flex flex-col">
-                    {#if evaluationMode === 'Visual_Trust_Mode'}
-                        {#if integrityData}
-                            <IntegrityCard {integrityData} />
-                        {/if}
+                <div class="max-w-4xl mx-auto mt-8 pt-10 border-t border-gray-800 relative flex flex-col gap-6">
+                    <div class="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-gray-950 px-4">
+                        <div class="flex items-center gap-2 text-[10px] font-mono font-bold uppercase tracking-widest text-indigo-400 border border-indigo-500/30 bg-indigo-950/40 px-4 py-1.5 rounded-full shadow-[0_0_10px_rgba(79,70,229,0.2)]">
+                            <span class="relative flex h-2 w-2">
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                                <span class="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                            </span>
+                            Micro Inspection Active
+                        </div>
+                    </div>
 
-                        {#if criticData}
-                            <CriticCard {criticData} />
-                        {/if}
+                    {#if evaluationMode === 'Visual_Trust_Mode'}
+                        <div bind:this={integrityContainer}>
+                            {#if isValidating}
+                                <div class="h-32 bg-gray-900 border border-gray-800 rounded-xl animate-pulse flex items-center justify-center shadow-lg">
+                                    <span class="text-indigo-500/50 text-xs font-mono font-bold uppercase tracking-widest flex items-center gap-2">
+                                        <span class="animate-spin h-4 w-4 border-2 border-indigo-500/50 border-t-transparent rounded-full"></span>
+                                        Calculating Parametric Integrity (3-Fan Window)...
+                                    </span>
+                                </div>
+                            {:else if integrityData}
+                                <div class="rounded-xl {integrityData.honest_ignorance_triggered ? 'flash-amber' : 'flash-emerald'}" transition:fade={{ duration: 300 }}>
+                                    <IntegrityCard {integrityData} />
+                                </div>
+                            {/if}
+                        </div>
+
+                        <div bind:this={criticContainer}>
+                            {#if isProbing}
+                                <div class="h-32 bg-gray-900 border border-gray-800 rounded-xl animate-pulse flex items-center justify-center shadow-lg">
+                                    <span class="text-indigo-500/50 text-xs font-mono font-bold uppercase tracking-widest flex items-center gap-2">
+                                        <span class="animate-spin h-4 w-4 border-2 border-indigo-500/50 border-t-transparent rounded-full"></span>
+                                        Executing Recursive Contradiction Probe (D_JS)...
+                                    </span>
+                                </div>
+                            {:else if criticData}
+                                <div class="rounded-xl {criticData.is_harmonious ? 'flash-emerald' : 'flash-amber'}" transition:fade={{ duration: 300 }}>
+                                    <CriticCard {criticData} />
+                                </div>
+                            {/if}
+                        </div>
                     {:else}
-                        <div class="p-4 mb-6 bg-gray-900 border border-gray-800 rounded-xl text-center text-xs font-mono text-gray-400">
+                        <div class="p-4 bg-gray-900 border border-gray-800 rounded-xl text-center text-xs font-mono text-gray-400">
                             [ OPAQUE RAG MODE ACTIVE: Visual Trust Layer elements and provenance cards suppressed for ablation testing ]
                         </div>
                     {/if}
 
-                    <NodePayload 
-                        {nodeData} 
-                        isLocked={integrityData?.honest_ignorance_triggered ?? false} 
-                    />
+                    <div bind:this={payloadContainer}>
+                        <NodePayload 
+                            {nodeData} 
+                            isLocked={integrityData?.honest_ignorance_triggered ?? false} 
+                        />
+                    </div>
                 </div>
             {:else if searchResults.length === 0}
                 <div class="max-w-4xl mx-auto flex flex-col items-center justify-center h-full text-center py-16">
@@ -641,11 +777,34 @@
                     </div>
                     <h3 class="text-xl font-medium text-gray-300 mb-2">Awaiting Graph Query or Node Input</h3>
                     <p class="text-gray-500 text-sm max-w-md mx-auto">
-                        Search the graph by term (e.g., <b>data governance</b>) or enter a direct node identifier in the sidebar to inspect multi-hop context.
+                        Search the graph by term (e.g., <b>data governance</b>) or enter a direct node identifier in the Micro Inspector to evaluate contextual integrity.
                     </p>
                 </div>
             {/if}
         </section>
+
+        <!-- Right Contextual Sidebar (Micro Inspector) -->
+        <Sidebar 
+            bind:nodeId={nodeId}
+            bind:confidenceThreshold={confidenceThreshold}
+            bind:evaluationMode={evaluationMode}
+            hasNodeData={!!nodeData}
+            {nodeData}
+            {integrityData}
+            {criticData}
+            isLoading={isLoading}
+            isCompressing={isCompressing}
+            isValidating={isValidating}
+            isProbing={isProbing}
+            on:fetch={fetchProvenance}
+            on:validate={runIntegrityGate}
+            on:probe={runCriticProbe}
+            on:calibrate={handleCalibration}
+            on:toggleMode={handleModeSwitch}
+            on:excise={handleExciseNode}
+            on:fetchParent={handleFetchParent}
+            on:microRlhf={handleMicroRLHF}
+        />
     </div>
 
     <!-- DeepLens™ Neural X-Ray Modal Component -->

@@ -63,6 +63,51 @@
         </div>
     </div>
     
+    <!-- Colab Llama LLM Synthesis Trigger (MOVED TO TOP) -->
+    <div class="bg-gray-900 border border-indigo-800/60 rounded-xl p-5 shadow-xl mb-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <h4 class="text-xs font-bold text-indigo-400 uppercase tracking-wider font-mono">
+                    Downstream LLM Inference (Colab Llama 3.2)
+                </h4>
+                <p class="text-[11px] text-gray-400 mt-0.5">
+                    Synthesize final answer using only the verified context below.
+                </p>
+            </div>
+            <button 
+                on:click={generateLLMSynthesis}
+                disabled={isGeneratingLLM}
+                class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-mono font-bold px-5 py-2.5 rounded-lg transition-all shadow-md flex items-center gap-2 cursor-pointer whitespace-nowrap"
+            >
+                {#if isGeneratingLLM}
+                    <span class="animate-spin h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full"></span>
+                    Synthesizing via Colab GPU...
+                {:else}
+                    ✨ Generate LLM Synthesis
+                {/if}
+            </button>
+        </div>
+
+        {#if llmResponseText}
+            <div class="mt-4 pt-4 border-t border-gray-800 animate-fadeIn">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-[10px] font-mono text-emerald-400 uppercase font-bold tracking-wider">
+                        Llama 3.2 Output (Powered by Colab T4 GPU):
+                    </span>
+                    <button 
+                        on:click={() => llmResponseText = null} 
+                        class="text-[10px] text-gray-400 hover:text-gray-200 underline cursor-pointer font-mono"
+                    >
+                        Clear Synthesis
+                    </button>
+                </div>
+                <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 text-xs font-mono text-gray-200 leading-relaxed whitespace-pre-wrap">
+                    {llmResponseText}
+                </div>
+            </div>
+        {/if}
+    </div>
+
     <!-- Neural Auto-Pilot Status Banner (If active) -->
     {#if compressionData.neural_sip && compressionData.neural_sip.auto_pilot_active}
         <div class="bg-indigo-950/40 border border-indigo-500/30 rounded-lg p-3 mb-4 flex items-center justify-between">
@@ -156,61 +201,17 @@
         </div>
     {/if}
 
-    <!-- High-Density Extraction Output -->
-    <div class="bg-gray-950/80 rounded-lg p-4 border border-gray-800 mb-4">
+    <!-- Verified Context Output (Renamed from High-Density Extraction) -->
+    <div class="bg-gray-950/80 rounded-lg p-4 border border-gray-800">
         <div class="flex items-center justify-between mb-2">
-            <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">High-Density Extraction</p>
+            <p class="text-xs text-gray-400 uppercase tracking-wider font-semibold">Verified Context (LLM Input)</p>
             {#if compressionData.retained_nodes && compressionData.retained_nodes.length > 0}
                 <span class="text-[11px] font-mono text-indigo-400">
                     D_KL: {compressionData.retained_nodes[0].kl_divergence} | Weight (w): {compressionData.retained_nodes[0].ontological_weight}
                 </span>
             {/if}
         </div>
-        <p class="text-gray-300 text-sm leading-relaxed">{compressionData.pruned_text || 'No high-density content retained.'}</p>
+        <p class="text-gray-300 text-sm leading-relaxed">{compressionData.pruned_text || 'No verified context retained.'}</p>
     </div>
 
-    <!-- Colab Llama LLM Synthesis Trigger -->
-    <div class="bg-gray-900 border border-indigo-800/60 rounded-xl p-5 shadow-xl">
-        <div class="flex items-center justify-between mb-3">
-            <div>
-                <h4 class="text-xs font-bold text-indigo-400 uppercase tracking-wider font-mono">
-                    Downstream LLM Inference (Colab Llama 3.2)
-                </h4>
-                <p class="text-[11px] text-gray-400 mt-0.5">
-                    Synthesize final answer using only the verified high-density "gold nuggets" above.
-                </p>
-            </div>
-            <button 
-                on:click={generateLLMSynthesis}
-                disabled={isGeneratingLLM}
-                class="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-mono font-bold px-4 py-2 rounded-lg transition-all shadow-md flex items-center gap-2 cursor-pointer"
-            >
-                {#if isGeneratingLLM}
-                    <span class="animate-spin h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full"></span>
-                    Synthesizing via Colab GPU...
-                {:else}
-                    ✨ Generate LLM Synthesis
-                {/if}
-            </button>
-        </div>
-
-        {#if llmResponseText}
-            <div class="mt-4 pt-4 border-t border-gray-800 animate-fadeIn">
-                <div class="flex items-center justify-between mb-2">
-                    <span class="text-[10px] font-mono text-emerald-400 uppercase font-bold tracking-wider">
-                        Llama 3.2 Output (Powered by Colab T4 GPU):
-                    </span>
-                    <button 
-                        on:click={() => llmResponseText = null} 
-                        class="text-[10px] text-gray-400 hover:text-gray-200 underline cursor-pointer font-mono"
-                    >
-                        Clear Synthesis
-                    </button>
-                </div>
-                <div class="bg-gray-950 p-4 rounded-xl border border-gray-800 text-xs font-mono text-gray-200 leading-relaxed whitespace-pre-wrap">
-                    {llmResponseText}
-                </div>
-            </div>
-        {/if}
-    </div>
 </div>

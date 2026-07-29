@@ -39,12 +39,6 @@
                     <div class="h-3 w-3 rounded-full bg-indigo-500 animate-pulse"></div>
                     <h2 class="text-lg font-bold text-white tracking-wide">DeepLens™: Neural X-Ray & Mechanistic Core</h2>
                 </div>
-                <button 
-                    on:click={() => dispatch('close')}
-                    class="text-gray-400 hover:text-white text-sm bg-gray-800 px-3 py-1 rounded border border-gray-700 transition-colors cursor-pointer"
-                >
-                    ✕ Close X-Ray
-                </button>
             </div>
 
             <!-- Modal Content Grid -->
@@ -155,7 +149,7 @@
                     on:click={() => dispatch('close')}
                     class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium transition-colors cursor-pointer"
                 >
-                    Resume Normal Operation
+                    Close
                 </button>
             </div>
 
