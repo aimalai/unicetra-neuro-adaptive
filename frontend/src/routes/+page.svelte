@@ -26,6 +26,7 @@
         pruned_tokens?: number;
         context_compression_ratio?: number;
         quadratic_compute_mitigation?: number;
+        tokens_averted?: number;
         api_cost_saved_usd?: number;
     }
 
@@ -152,7 +153,7 @@
         errorMessage = null;
 
         try { 
-            const response = await fetch('https://0466-34-145-125-124.ngrok-free.app/api/v1/llm/generate', {
+            const response = await fetch('https://5f1a-35-201-189-227.ngrok-free.app/api/v1/llm/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -280,7 +281,6 @@
         scrollToTop();
 
         try {
-            // Updated to pass user control parameters in query string including dynamic maxChunks limit
             const params = new URLSearchParams({
                 query: searchQuery.trim(),
                 limit: maxChunks.toString(),
@@ -344,7 +344,12 @@
                 }
             }
 
-            logTelemetry('graph_search', { query: searchQuery.trim(), match_count: searchResults.length, controls: { retrievalDepth, djsSensitivity, firewallPreset, boilerplateSuppression, maxChunks } });
+            logTelemetry('graph_search', { 
+                query: searchQuery.trim(), 
+                match_count: searchResults.length, 
+                controls: { retrievalDepth, djsSensitivity, firewallPreset, boilerplateSuppression, maxChunks },
+                economics: data.rea_audit?.metrics || {} // NEW: Pass the metrics object to telemetry
+            });
         } catch (err: any) {
             errorMessage = err.message || 'Failed to search graph database.';
         } finally {

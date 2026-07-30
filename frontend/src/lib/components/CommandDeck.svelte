@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { createEventDispatcher } from 'svelte';
+    import { createEventDispatcher, onMount } from 'svelte';
     const dispatch = createEventDispatcher();
 
     export let searchQuery: string = '';
@@ -11,22 +11,54 @@
     export let djsSensitivity: number = 0.15;
     export let firewallPreset: 'permissive' | 'balanced' | 'strict' = 'balanced';
     export let boilerplateSuppression: boolean = true;
-    export let maxChunks: number = 5; // Dynamic chunk retrieval window
+    export let maxChunks: number = 5;
 
     let showControlsDrawer: boolean = false;
     export let openDeepLens: () => void = () => {};
 
+    // Account Level Session Data
+    let sessionCostSaved: number = 0.00;
+    let sessionTokensAverted: number = 0;
+
     function handleSearch() {
         dispatch('search');
+    }
+
+    // Ping telemetry occasionally to update the session tracker
+    async function syncSessionTelemetry() {
+        try {
+            const res = await fetch('http://127.0.0.1:8000/api/v1/telemetry/export');
+            if (res.ok) {
+                const data = await res.json();
+                if (data.account_aggregate) {
+                    sessionCostSaved = data.account_aggregate.total_cost_saved;
+                    sessionTokensAverted = data.account_aggregate.total_tokens_averted;
+                }
+            }
+        } catch (e) {
+            console.warn("Failed to sync session telemetry", e);
+        }
+    }
+
+    // Triggered after search completes
+    $: if (!isSearching) {
+        setTimeout(syncSessionTelemetry, 500);
     }
 </script>
 
 <div class="bg-gray-900 border-b border-gray-800 px-6 py-4 flex flex-col shadow-md shrink-0">
     <div class="flex items-center justify-between gap-6">
-        <h2 class="text-xs font-bold text-emerald-500 uppercase tracking-wider flex items-center gap-2 min-w-max">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-            Macro Pipeline
-        </h2>
+        <div class="flex flex-col gap-1 min-w-max">
+            <h2 class="text-xs font-bold text-emerald-500 uppercase tracking-wider flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                Macro Pipeline
+            </h2>
+            {#if sessionTokensAverted > 0}
+                <span class="text-[10px] font-mono text-gray-400">
+                    Session: <span class="text-indigo-400 font-bold">{sessionTokensAverted.toLocaleString()}</span> tokens averted
+                </span>
+            {/if}
+        </div>
         
         <div class="flex-1 flex items-center gap-4 max-w-4xl mx-auto">
             <textarea 

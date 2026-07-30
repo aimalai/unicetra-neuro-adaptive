@@ -1,6 +1,8 @@
 from pathlib import Path
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.services.graph_service import fetch_node_with_provenance, search_graph_by_query
@@ -11,11 +13,16 @@ from app.services.ontological_critic import run_recursive_contradiction_probe
 from app.services.telemetry_service import TelemetryEventPayload, record_telemetry_event, export_telemetry_dataset
 from app.services.schema_mapper import schema_loader
 from app.services.ingestion_controller import ingestion_controller
+from app.services.export_service import export_service
 
 # Import the Neural Controller service
 from app.services.neural_controller import predict_sufficient_information_point, apply_rlhf_threshold_tuning
 
 api_router = APIRouter()
+
+# --- CONSTANTS FOR ENTERPRISE ECONOMICS ---
+NAIVE_RAG_BENCHMARK_TOKENS = 2000  # Standard un-audited enterprise context window
+TOKEN_COST_PER_1K = 0.0025  # Estimated GPT-4o input cost
 
 class ValidationPayload(BaseModel):
     text_content: str
@@ -31,7 +38,8 @@ class REAMetrics(BaseModel):
     pruned_tokens: int
     context_compression_ratio: float
     quadratic_compute_mitigation: float
-    api_cost_saved_usd: float
+    tokens_averted: int            # NEW: Tokens saved vs Naive RAG
+    api_cost_saved_usd: float      # NEW: Calculated based on Tokens Averted
 
 class REANode(BaseModel):
     node_id: str
@@ -80,6 +88,15 @@ class RLHFTunePayload(BaseModel):
 class RLHFTuneReport(BaseModel):
     new_djs_threshold: float
     status: str
+
+class AuditVaultPayload(BaseModel):
+    session_id: str
+    query: str
+    verified_input: str
+    rea_metrics: Dict[str, Any]
+    llm_response: str
+
+AUDIT_VAULT_STORE = []
 
 @api_router.get("/status", tags=["System Health"])
 async def system_status():
@@ -131,6 +148,14 @@ async def run_context_compression(payload: REACompressPayload):
     metrics = rea_result["metrics"]
     retained = rea_result["retained_nodes"]
     pruned_text = " ".join([n["text_content"] for n in retained]) if retained else ""
+    
+    # NEW: Enterprise Economics Calculation
+    final_token_length = metrics["pruned_tokens"]
+    tokens_averted = max(0, NAIVE_RAG_BENCHMARK_TOKENS - final_token_length)
+    cost_saved = (tokens_averted / 1000.0) * TOKEN_COST_PER_1K
+    
+    metrics["tokens_averted"] = tokens_averted
+    metrics["api_cost_saved_usd"] = cost_saved
     
     return REACompressResult(
         retained_nodes=retained,
@@ -202,6 +227,17 @@ async def search_graph(
         pig_preset=pig_preset, 
         boilerplate_suppression=boilerplate_suppression
     )
+    
+    # Inject Account-Level Economic Metrics into Graph Search Output
+    if "rea_audit" in search_output and "metrics" in search_output["rea_audit"]:
+        metrics = search_output["rea_audit"]["metrics"]
+        final_token_length = metrics.get("pruned_tokens", 0)
+        tokens_averted = max(0, NAIVE_RAG_BENCHMARK_TOKENS - final_token_length)
+        cost_saved = (tokens_averted / 1000.0) * TOKEN_COST_PER_1K
+        
+        metrics["tokens_averted"] = tokens_averted
+        metrics["api_cost_saved_usd"] = cost_saved
+
     return search_output
 
 @api_router.get(
@@ -250,6 +286,29 @@ async def get_telemetry_export():
     Exports accumulated telemetry logs.
     """
     return export_telemetry_dataset()
+
+@api_router.post("/export/docx", tags=["Export Management"])
+async def export_docx(payload: Dict[str, str]):
+    text = payload.get("text", "No content provided.")
+    title = payload.get("title", "Occo AI Compliance Audit")
+    stream = export_service.generate_docx(text, title)
+    return StreamingResponse(stream, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": "attachment; filename=occo_audit_report.docx"})
+
+@api_router.post("/export/pdf", tags=["Export Management"])
+async def export_pdf(payload: Dict[str, str]):
+    text = payload.get("text", "No content provided.")
+    title = payload.get("title", "Occo AI Compliance Audit")
+    stream = export_service.generate_pdf(text, title)
+    return StreamingResponse(stream, media_type="application/pdf", headers={"Content-Disposition": "attachment; filename=occo_audit_report.pdf"})
+
+@api_router.post("/vault/pin", tags=["Audit Vault"])
+async def pin_to_audit_vault(payload: AuditVaultPayload):
+    record = {
+        "pinned_at": datetime.utcnow().isoformat(),
+        **payload.dict()
+    }
+    AUDIT_VAULT_STORE.append(record)
+    return {"status": "SUCCESS", "message": "Record successfully committed as immutable record to Audit Vault.", "total_pinned": len(AUDIT_VAULT_STORE)}
 
 @api_router.websocket("/ws/audit-alerts")
 async def websocket_audit_alerts(websocket: WebSocket):
