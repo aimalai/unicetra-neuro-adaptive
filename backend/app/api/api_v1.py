@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Query
 from pydantic import BaseModel
 
 from app.services.graph_service import fetch_node_with_provenance, search_graph_by_query
@@ -36,7 +36,7 @@ class REAMetrics(BaseModel):
 class REANode(BaseModel):
     node_id: str
     text_content: str
-    kl_divergence: float
+    kl_divergence: float = 0.0
     ontological_weight: float
 
 class REACompressResult(BaseModel):
@@ -186,12 +186,22 @@ async def run_rlhf_tuning(payload: RLHFTunePayload):
     )
 
 @api_router.get("/graph/search", tags=["Graph Retrieval"])
-async def search_graph(query: str, limit: int = 5):
-    """
-    Mode 1 Q&A Search Entrypoint: Performs semantic vector search across ingested graph chunks,
-    runs the candidates through REA (Recursive Entropy Audit), and returns matched nodes and audit metrics.
-    """
-    search_output = search_graph_by_query(query, limit)
+async def search_graph(
+    query: str, 
+    limit: int = Query(5, description="Dynamic chunk retrieval limit"),
+    hop_limit: int = Query(2, description="Retrieval depth / graph hop limit"),
+    d_js_threshold: float = Query(0.15, description="Jensen-Shannon divergence sensitivity"),
+    pig_preset: str = Query("balanced", description="Firewall strictness preset"),
+    boilerplate_suppression: bool = Query(True, description="Flag to suppress boilerplate text")
+):
+    search_output = search_graph_by_query(
+        query=query, 
+        limit=limit, 
+        hop_limit=hop_limit, 
+        d_js_threshold=d_js_threshold, 
+        pig_preset=pig_preset, 
+        boilerplate_suppression=boilerplate_suppression
+    )
     return search_output
 
 @api_router.get(

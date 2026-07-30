@@ -106,6 +106,13 @@
     let evaluationMode: string = 'Visual_Trust_Mode';
     let isDeepLensOpen: boolean = false;
 
+    // New User Control States from Command Deck Workbench
+    let retrievalDepth: number = 2;
+    let djsSensitivity: number = 0.15;
+    let firewallPreset: 'permissive' | 'balanced' | 'strict' = 'balanced';
+    let boilerplateSuppression: boolean = true;
+    let maxChunks: number = 5;
+
     let isLoading: boolean = false;
     let isSearching: boolean = false;
     let isCompressing: boolean = false;
@@ -246,7 +253,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    current_djs_threshold: 0.6,
+                    current_djs_threshold: djsSensitivity,
                     expert_feedback_score: feedbackScore
                 })
             });
@@ -273,7 +280,17 @@
         scrollToTop();
 
         try {
-            const response = await fetch(`http://127.0.0.1:8000/api/v1/graph/search?query=${encodeURIComponent(searchQuery.trim())}&limit=5`);
+            // Updated to pass user control parameters in query string including dynamic maxChunks limit
+            const params = new URLSearchParams({
+                query: searchQuery.trim(),
+                limit: maxChunks.toString(),
+                hop_limit: retrievalDepth.toString(),
+                d_js_threshold: djsSensitivity.toString(),
+                pig_preset: firewallPreset,
+                boilerplate_suppression: boilerplateSuppression.toString()
+            });
+
+            const response = await fetch(`http://127.0.0.1:8000/api/v1/graph/search?${params.toString()}`);
             if (!response.ok) throw new Error(`Search failed with HTTP ${response.status}`);
             
             const data = await response.json();
@@ -327,7 +344,7 @@
                 }
             }
 
-            logTelemetry('graph_search', { query: searchQuery.trim(), match_count: searchResults.length });
+            logTelemetry('graph_search', { query: searchQuery.trim(), match_count: searchResults.length, controls: { retrievalDepth, djsSensitivity, firewallPreset, boilerplateSuppression, maxChunks } });
         } catch (err: any) {
             errorMessage = err.message || 'Failed to search graph database.';
         } finally {
@@ -416,7 +433,7 @@
                     target_text: nodeData.text_content,
                     parent_node_id: nodeData.parent ? nodeData.parent.parent_id : null,
                     parent_text: nodeData.parent ? nodeData.parent.parent_content : null,
-                    js_threshold: 0.6
+                    js_threshold: djsSensitivity
                 })
             });
 
@@ -481,7 +498,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    current_djs_threshold: confidenceThreshold,
+                    current_djs_threshold: djsSensitivity,
                     expert_feedback_score: score,
                     context: 'micro_inspector_action'
                 })
@@ -588,16 +605,18 @@
         </div>
     </header>
 
-    <!-- NEW: DeepLens is now passed into CommandDeck -->
+    <!-- Updated CommandDeck with Bound User Controls -->
     <CommandDeck 
         bind:searchQuery 
         bind:autoPilotActive 
+        bind:retrievalDepth
+        bind:djsSensitivity
+        bind:firewallPreset
+        bind:boilerplateSuppression
+        bind:maxChunks
         {isSearching} 
         on:search={searchGraph} 
-        openDeepLens={() => {
-            console.log("DeepLens button clicked from Command Deck!");
-            isDeepLensOpen = true;
-        }}
+        openDeepLens={() => isDeepLensOpen = true}
     />
 
     <div class="flex flex-1 overflow-hidden">
