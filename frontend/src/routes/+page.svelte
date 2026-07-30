@@ -236,13 +236,17 @@
         }
 
         if (compressionData && compressionData.metrics) {
+            // FIX APPLIED HERE: Ensure dismissing false positives doesn't inflate verified tokens past original bounds
             const tokenDelta = isDismissed ? -4 : 8;
+            const originalMax = compressionData.original_length || compressionData.compressed_length;
+            const updatedCompressedLength = Math.min(originalMax, Math.max(10, compressionData.compressed_length + tokenDelta));
+            
             compressionData = {
                 ...compressionData,
-                compressed_length: Math.max(10, compressionData.compressed_length + tokenDelta),
+                compressed_length: updatedCompressedLength,
                 metrics: {
                     ...compressionData.metrics,
-                    pruned_tokens: Math.max(10, (compressionData.metrics.pruned_tokens || 0) + tokenDelta)
+                    pruned_tokens: updatedCompressedLength
                 }
             };
         }
@@ -821,7 +825,7 @@
                         <div class="bg-gray-900 border border-gray-800 p-4 rounded-lg max-w-sm w-full text-left">
                             <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-2">💡 How to improve your query:</span>
                             <ul class="text-xs text-gray-400 space-y-2 list-disc list-inside pl-2">
-                                <li>Use specific statutory terms instead of general colloquialisms.</li>
+                                <li>Use specific domain terminology instead of general colloquialisms.</li>
                                 <li>Reference exact subjects, frameworks, or section names.</li>
                                 <li>Ensure the topic is covered within the indexed knowledge graph.</li>
                             </ul>
@@ -851,10 +855,10 @@
             {nodeData}
             {integrityData}
             {criticData}
-            isLoading={isLoading}
-            isCompressing={isCompressing}
-            isValidating={isValidating}
-            isProbing={isProbing}
+            {isLoading}
+            {isCompressing}
+            {isValidating}
+            {isProbing}
             on:fetch={fetchProvenance}
             on:validate={runIntegrityGate}
             on:probe={runCriticProbe}

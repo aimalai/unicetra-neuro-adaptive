@@ -136,10 +136,16 @@ def search_graph_by_query(
                 if not node_id or node_id in seen_node_ids:
                     continue
 
-                # Boilerplate suppression filter check
+                # Robust Boilerplate & Fragment Suppression Filter Check
                 text_to_eval = r['text_content'] or ""
-                if boilerplate_suppression and (len(text_to_eval.split()) < 4 or "Official Journal" in text_to_eval or "2024/" in text_to_eval):
-                    continue # Skip low-density boilerplate filler chunks
+                words = text_to_eval.split()
+                if boilerplate_suppression and (
+                    len(words) < 10 or 
+                    text_to_eval.strip().endswith((';', ',', 'und', 'or')) or 
+                    "Official Journal" in text_to_eval or 
+                    "2024/" in text_to_eval
+                ):
+                    continue # Skip low-density boilerplate filler chunks and dangling fragments
 
                 seen_node_ids.add(node_id)
 
@@ -236,7 +242,14 @@ def search_graph_by_query(
                 for hr in healing_records:
                     healed_id = hr["node_id"]
                     healed_text = hr["text_content"] or ""
-                    if boilerplate_suppression and (len(healed_text.split()) < 4 or "Official Journal" in healed_text):
+                    
+                    # Apply identical robust fragment/boilerplate filter to healing loop
+                    healed_words = healed_text.split()
+                    if boilerplate_suppression and (
+                        len(healed_words) < 10 or 
+                        healed_text.strip().endswith((';', ',', 'und', 'or')) or 
+                        "Official Journal" in healed_text
+                    ):
                         continue
 
                     if healed_id not in seen_node_ids:
