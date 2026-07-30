@@ -6,7 +6,8 @@ from app.services.rea_auditor import execute_recursive_entropy_audit, calculate_
 from app.services.ontological_critic import calculate_jensen_shannon_divergence
 
 # Initialize local lightweight open-source embedding model (runs completely offline)
-embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+embedding_model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+#embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
 def get_text_embedding(text: str) -> List[float]:
     """Generates a 384-dimensional vector embedding locally."""
@@ -89,9 +90,10 @@ def search_graph_by_query(
     """
     Unified Dual-Invention Retrieval Pipeline:
     1. Performs Vector Similarity mapped against Ontological Weighting (w) using dynamic user hop limits.
-    2. Runs Invention 1: REA (Recursive Entropy Audit) with optional boilerplate suppression.
-    3. Runs Invention 2: Ontological Critic mapped to user-tuned D_JS sensitivity.
-    4. Executes Automated Self-Correction Router to fill topological gaps if friction is found.
+    2. Applies Adaptive Similarity Floor to reject out-of-domain garbage queries.
+    3. Runs Invention 1: REA (Recursive Entropy Audit) with optional boilerplate suppression.
+    4. Runs Invention 2: Ontological Critic mapped to user-tuned D_JS sensitivity.
+    5. Executes Automated Self-Correction Router to fill topological gaps if friction is found.
     """
     try:
         query_vector = get_text_embedding(query)
@@ -161,7 +163,28 @@ def search_graph_by_query(
                 }
                 raw_candidates.append(node_item)
 
+            # --- ADAPTIVE SIMILARITY FLOOR ---
+            if raw_candidates:
+                top_score = raw_candidates[0]["similarity_score"]
+                # Hard Floor: Raised to 0.68 to properly catch out-of-domain queries using MiniLM embeddings.
+                if top_score < 0.68:
+                    raw_candidates = []
+                else:
+                    # Relative Floor: Tightened to 0.85 (drop chunks if they drop more than 15% below the top match).
+                    raw_candidates = [c for c in raw_candidates if c["similarity_score"] >= top_score * 0.85]
+
             results = list(raw_candidates)
+
+            # If the floor wiped out all candidates, return early to save REA compute
+            if not results:
+                return {
+                    "query": query,
+                    "matches_count": 0,
+                    "matches": [],
+                    "rea_audit": {},
+                    "ontological_critic_audit": {},
+                    "adaptive_floor_triggered": True
+                }
 
             # ---------------------------------------------------------
             # INVENTION 1: Recursive Entropy Audit (REA)
@@ -233,6 +256,7 @@ def search_graph_by_query(
                 "query": query,
                 "matches_count": len(results),
                 "matches": results,
+                "adaptive_floor_triggered": False,
                 "rea_audit": {
                     "shannon_entropy": baseline_entropy,
                     "metrics": rea_audit_result["metrics"],
@@ -325,6 +349,7 @@ def _fallback_lexical_search_with_rea(
                 "query": query,
                 "matches_count": len(results),
                 "matches": results,
+                "adaptive_floor_triggered": False,
                 "rea_audit": {
                     "shannon_entropy": baseline_entropy,
                     "metrics": rea_audit_result["metrics"],
@@ -337,7 +362,7 @@ def _fallback_lexical_search_with_rea(
                 }
             }
     except Exception:
-        return {"query": query, "matches_count": 0, "matches": [], "rea_audit": {}, "ontological_critic_audit": {}}
+        return {"query": query, "matches_count": 0, "matches": [], "adaptive_floor_triggered": False, "rea_audit": {}, "ontological_critic_audit": {}}
 
 
 def initialize_vector_index():

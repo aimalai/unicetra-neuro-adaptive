@@ -294,7 +294,17 @@
             if (!response.ok) throw new Error(`Search failed with HTTP ${response.status}`);
             
             const data = await response.json();
-            searchResults = data.matches || [];
+            
+            // Catch the Adaptive Floor trigger
+            if (data.adaptive_floor_triggered) {
+                searchResults = [];
+                systemNotification = {
+                    message: "Query Rejected: No verified regulatory context found.",
+                    type: 'info'
+                };
+            } else {
+                searchResults = data.matches || [];
+            }
             
             if (data.rea_audit && data.rea_audit.metrics) {
                 let neuralReport = undefined;
@@ -348,7 +358,7 @@
                 query: searchQuery.trim(), 
                 match_count: searchResults.length, 
                 controls: { retrievalDepth, djsSensitivity, firewallPreset, boilerplateSuppression, maxChunks },
-                economics: data.rea_audit?.metrics || {} // NEW: Pass the metrics object to telemetry
+                economics: data.rea_audit?.metrics || {} // Pass the metrics object to telemetry
             });
         } catch (err: any) {
             errorMessage = err.message || 'Failed to search graph database.';
@@ -702,6 +712,8 @@
                         {isGeneratingLLM}
                         {llmResponseText}
                         {generateLLMSynthesis}
+                        {sessionId}
+                        originalQuery={searchQuery}
                     />
                 </div>
             {/if}
@@ -792,17 +804,40 @@
                         />
                     </div>
                 </div>
+            <!-- Empty State / Garbage Query Feedback -->
             {:else if searchResults.length === 0}
-                <div class="max-w-4xl mx-auto flex flex-col items-center justify-center h-full text-center py-16">
-                    <div class="h-16 w-16 mb-6 rounded-full border border-gray-700 bg-gray-900 flex items-center justify-center text-gray-500">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                        </svg>
-                    </div>
-                    <h3 class="text-xl font-medium text-gray-300 mb-2">Awaiting Graph Query or Node Input</h3>
-                    <p class="text-gray-500 text-sm max-w-md mx-auto">
-                        Search the graph by term (e.g., <b>data governance</b>) or enter a direct node identifier in the Micro Inspector to evaluate contextual integrity.
-                    </p>
+                <div class="max-w-4xl mx-auto flex flex-col items-center justify-center h-full text-center py-16 animate-fadeIn">
+                    {#if systemNotification && systemNotification.message.includes("Query Rejected")}
+                        <!-- Out-of-Domain Feedback UI -->
+                        <div class="h-16 w-16 mb-6 rounded-full border border-amber-700/50 bg-amber-950/30 flex items-center justify-center text-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-medium text-amber-400 mb-2">No Verified Regulatory Context Found</h3>
+                        <p class="text-gray-400 text-sm max-w-md mx-auto mb-4 leading-relaxed">
+                            Your query was intercepted by the Semantic Firewall. The vector match confidence fell below our <span class="text-gray-200 font-mono">Adaptive Similarity Floor (&lt; 0.68)</span>, meaning the query is likely out-of-domain.
+                        </p>
+                        <div class="bg-gray-900 border border-gray-800 p-4 rounded-lg max-w-sm w-full text-left">
+                            <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-2">💡 How to improve your query:</span>
+                            <ul class="text-xs text-gray-400 space-y-2 list-disc list-inside pl-2">
+                                <li>Use specific statutory terms instead of general colloquialisms.</li>
+                                <li>Reference exact subjects, frameworks, or section names.</li>
+                                <li>Ensure the topic is covered within the indexed knowledge graph.</li>
+                            </ul>
+                        </div>
+                    {:else}
+                        <!-- Default Initial Empty State UI -->
+                        <div class="h-16 w-16 mb-6 rounded-full border border-gray-700 bg-gray-900 flex items-center justify-center text-gray-500">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                            </svg>
+                        </div>
+                        <h3 class="text-xl font-medium text-gray-300 mb-2">Awaiting Graph Query</h3>
+                        <p class="text-gray-500 text-sm max-w-md mx-auto">
+                            Search the graph by phrase (e.g., data governance) or by full natural language query. Please note that you can audit the contextual integrity of the results from the graph in the Micro Inspector panel on the right by clicking the "inspect" that you will see next every result chunk that is retrieved.
+                        </p>
+                    {/if}
                 </div>
             {/if}
         </section>
