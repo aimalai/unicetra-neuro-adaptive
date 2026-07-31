@@ -49,54 +49,52 @@ def calculate_surprisal_score(text: str) -> float:
     
     return round(min(0.99, max(0.50, surprisal_score)), 4)
 
-
 def calculate_structural_score(text: str) -> float:
     """
-    Fan 2: Structural Integrity Audit (Commercial Baseline Recalibration)
-    Evaluates topological syntax, structural continuity, and general semantic schema markers 
-    without overly penalizing non-legislative text.
+    Fan 2: Structural Integrity Audit
+    STRICT MODE: Starts at 0.70. Text must earn a passing grade via formal markers.
     """
-    score = 0.82  # Commercial baseline adjusted upwards to prevent false-positive locks
+    score = 0.70  # Lowered from 0.82. Fails by default.
 
-    # Check for formal or regulatory terminology (optional bonus points)
+    # Strong reward for regulatory/legal taxonomy
     if re.search(r'\b(Article|Section|Recital|Paragraph|Chapter|Title|Annex|Regulation|Directive|Act)\b', text, re.I):
-        score += 0.08
+        score += 0.12
 
-    # Check for general structural schema markers or professional phrasing
-    if re.search(r'\b(shall|requirements|conformity|obligations|compliance|system|process|method)\b', text, re.I):
-        score += 0.07
+    # Strong reward for professional operational markers
+    if re.search(r'\b(shall|requirements|conformity|obligations|compliance|system|process|method|ensure|maintain)\b', text, re.I):
+        score += 0.10
 
-    # Check for structured enumeration or punctuation flow
-    if re.search(r'^\s*(\d+[\.\)]|\([a-z0-9]+\))', text, re.M) or len(text.split()) > 5:
+    # Reward for structured enumeration (lists, bullets)
+    if re.search(r'^\s*(\d+[\.\)]|\([a-z0-9]+\))', text, re.M):
         score += 0.05
 
     return round(min(0.99, max(0.50, score)), 4)
 
-
 def calculate_positional_score(text: str) -> float:
     """
     Fan 3: Positional Continuity Audit
-    Evaluates sequence completeness, sentence boundary integrity, 
-    and bracket/quote balance across the chunk window.
+    STRICT MODE: Starts at 0.75. Requires perfect capitalization and punctuation to pass.
     """
-    score = 0.85  # Commercial baseline
+    score = 0.75  # Lowered from 0.85. Fails by default.
     stripped = text.strip()
     if not stripped:
         return 0.50
 
-    # Check sentence capitalization start
+    # Must have capital starting letter to earn points
     if stripped[0].isupper():
         score += 0.08
 
-    # Check proper closing punctuation
+    # Must have proper closing punctuation to earn points
     if stripped[-1] in ('.', ':', ';', '”', '"'):
-        score += 0.06
+        score += 0.08
 
-    # Check bracket/parenthesis symmetry (prevents truncated chunk splits)
+    # Harsher penalty for asymmetrical brackets
     if text.count('(') == text.count(')') and text.count('[') == text.count(']'):
         score += 0.04
+    else:
+        score -= 0.15 
 
-    # Penalty for extremely short truncated fragments (< 8 words)
+    # Penalty for extremely short truncated fragments
     words = stripped.split()
     if len(words) < 8:
         score -= 0.15

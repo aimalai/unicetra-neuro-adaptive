@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Occo AI - Word Add-in</title>
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <style>
+      body {
+        font-family: sans-serif;
+        background: #030712;
+        color: #e5e7eb;
+        padding: 16px;
+        margin: 0;
+      }
+      h2 {
+        font-size: 14px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: #818cf8;
+        margin-bottom: 4px;
+      }
+      .subtitle {
+        font-size: 11px;
+        color: #9ca3af;
+        margin-top: 0;
+        margin-bottom: 16px;
+      }
+      .tool-card {
+        background: #111827;
+        border: 1px solid #1f2937;
+        padding: 12px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+      }
+      .tool-title {
+        font-size: 12px;
+        font-weight: bold;
+        color: #e5e7eb;
+        margin-bottom: 8px;
+        border-bottom: 1px solid #374151;
+        padding-bottom: 4px;
+      }
+      button {
+        color: white;
+        border: none;
+        padding: 10px 16px;
+        border-radius: 6px;
+        cursor: pointer;
+        width: 100%;
+        font-weight: bold;
+        font-size: 12px;
+        margin-top: 8px;
+      }
+      .btn-primary {
+        background: #4f46e5;
+      }
+      .btn-primary:hover {
+        background: #4338ca;
+      }
+      .btn-warning {
+        background: #d97706;
+      }
+      .btn-warning:hover {
+        background: #b45309;
+      }
+      .btn-success {
+        background: #059669;
+      }
+      .btn-success:hover {
+        background: #047857;
+      }
+      .status-text {
+        font-size: 11px;
+        margin-top: 8px;
+      }
+      .success {
+        color: #4ade80;
+      }
+      .error {
+        color: #f87171;
+      }
+      .warning {
+        color: #fbbf24;
+      }
+      pre {
+        white-space: pre-wrap;
+        font-size: 11px;
+        color: #94a3b8;
+        background: #030712;
+        padding: 8px;
+        border-radius: 4px;
+        border: 1px solid #1f2937;
+        font-family: monospace;
+        margin-top: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Occo AI Auditor</h2>
+    <p class="subtitle">Universal Semantic Enforcement</p>
+
+    <!-- TOOL 1: Ontological Critic -->
+    <div class="tool-card" id="critic-card">
+      <div class="tool-title">⚡ Universal Clash Detector</div>
+      <p style="font-size: 11px; color: #9ca3af; margin: 0 0 8px 0">
+        Audit highlighted draft against global graph.
+      </p>
+
+      <button id="critic-btn" class="btn-warning">
+        Run Critic Probe (D_JS)
+      </button>
+
+      <div id="critic-results" style="display: none; margin-top: 12px">
+        <div class="status-text" id="critic-status"></div>
+        <div class="status-text" style="color: #d1d5db" id="critic-score"></div>
+
+        <div
+          id="fix-container"
+          style="
+            display: none;
+            margin-top: 12px;
+            border-top: 1px solid #374151;
+            padding-top: 8px;
+          "
+        >
+          <strong style="color: #38bdf8; font-size: 11px"
+            >Verified Graph Baseline Found:</strong
+          >
+          <pre id="fix-preview"></pre>
+          <button id="apply-fix-btn" class="btn-success">
+            Apply Graph Fix to Document
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOOL 2: REA Compressor -->
+    <div class="tool-card" id="compressor-card">
+      <div class="tool-title">📉 REA Entropy Pruner</div>
+      <button id="compress-btn" class="btn-primary">Compress via REA</button>
+
+      <div id="compress-results" style="display: none; margin-top: 12px">
+        <div class="status-text" id="compress-status"></div>
+        <div id="metrics-section" style="display: none; margin-top: 8px">
+          <div style="font-size: 11px; color: #d1d5db">
+            <strong>Tokens Averted:</strong>
+            <span id="tokens-saved" class="success">0</span> tok<br />
+            <strong>C2K Ratio:</strong> <span id="c2k-ratio">1.0</span>
+          </div>
+          <strong
+            style="
+              color: #38bdf8;
+              font-size: 11px;
+              display: block;
+              margin-top: 8px;
+            "
+            >Pruned Text:</strong
+          >
+          <pre id="pruned-preview"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOOL 3: PIG Claims Checker -->
+    <div class="tool-card" id="pig-card">
+      <div class="tool-title">⚖️ PIG Claims Checker</div>
+      <p style="font-size: 11px; color: #9ca3af; margin: 0 0 8px 0">
+        Audit draft for ungrounded claims and human hallucinations.
+      </p>
+
+      <button
+        id="pig-btn"
+        style="
+          background: #be185d;
+          color: white;
+          border: none;
+          padding: 10px 16px;
+          border-radius: 6px;
+          cursor: pointer;
+          width: 100%;
+          font-weight: bold;
+          font-size: 12px;
+          margin-top: 8px;
+        "
+      >
+        Audit Document Integrity
+      </button>
+
+      <div id="pig-results" style="display: none; margin-top: 12px">
+        <div class="status-text" id="pig-status"></div>
+        <div
+          id="pig-details"
+          style="font-size: 11px; margin-top: 8px; color: #d1d5db"
+        ></div>
+      </div>
+    </div>
+
+    <!-- TOOL 4: Agentic Context Injection -->
+    <div class="tool-card" id="injector-card">
+      <div class="tool-title">🔗 Agentic Context Injector</div>
+      <p style="font-size: 11px; color: #9ca3af; margin: 0 0 8px 0">
+        Highlight jargon or acronyms to pull verified definitions from the graph
+        into document comments.
+      </p>
+
+      <button
+        id="injector-btn"
+        style="
+          background: #0ea5e9;
+          color: white;
+          border: none;
+          padding: 10px 16px;
+          border-radius: 6px;
+          cursor: pointer;
+          width: 100%;
+          font-weight: bold;
+          font-size: 12px;
+          margin-top: 8px;
+        "
+      >
+        Fetch Structural Context
+      </button>
+
+      <div id="injector-results" style="display: none; margin-top: 12px">
+        <div class="status-text" id="injector-status"></div>
+        <div
+          id="injector-details"
+          style="font-size: 11px; margin-top: 8px; color: #d1d5db"
+        ></div>
+      </div>
+    </div>
+
+    <!-- TOOL 5: Full-Document Entropy Audit -->
+    <div class="tool-card" id="audit-card">
+      <div class="tool-title">📊 Universal Bloat Report</div>
+      <p style="font-size: 11px; color: #9ca3af; margin: 0 0 8px 0">
+        Macro-analysis of document density, Shannon Entropy, and C2K ratio.
+      </p>
+
+      <!-- Purple button for Document-wide actions -->
+      <button
+        id="audit-btn"
+        style="
+          background: #7c3aed;
+          color: white;
+          border: none;
+          padding: 10px 16px;
+          border-radius: 6px;
+          cursor: pointer;
+          width: 100%;
+          font-weight: bold;
+          font-size: 12px;
+          margin-top: 8px;
+        "
+      >
+        Generate Entropy Audit
+      </button>
+
+      <div id="audit-results" style="display: none; margin-top: 12px">
+        <div class="status-text" id="audit-status"></div>
+        <div
+          id="audit-details"
+          style="font-size: 11px; margin-top: 8px; color: #d1d5db"
+        ></div>
+
+        <div
+          id="audit-action-container"
+          style="
+            display: none;
+            margin-top: 12px;
+            border-top: 1px solid #374151;
+            padding-top: 8px;
+          "
+        >
+          <button id="apply-prune-btn" class="btn-success">
+            ✂️ Auto-Prune Document
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- TOOL 6: Bidirectional Graph Enrichment -->
+    <div class="tool-card" id="vault-card">
+      <div class="tool-title">🗄️ Agnostic Vault</div>
+      <p style="font-size: 11px; color: #9ca3af; margin: 0 0 8px 0">
+        Push verified, high-density drafting directly to the global Neo4j graph.
+      </p>
+
+      <!-- Using a teal color to signify data entry/writing -->
+      <button
+        id="vault-btn"
+        style="
+          background: #0d9488;
+          color: white;
+          border: none;
+          padding: 10px 16px;
+          border-radius: 6px;
+          cursor: pointer;
+          width: 100%;
+          font-weight: bold;
+          font-size: 12px;
+          margin-top: 8px;
+        "
+      >
+        Pin Highlight to Vault
+      </button>
+
+      <div id="vault-results" style="display: none; margin-top: 12px">
+        <div class="status-text" id="vault-status"></div>
+        <div
+          id="vault-details"
+          style="font-size: 11px; margin-top: 8px; color: #d1d5db"
+        ></div>
+      </div>
+    </div>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

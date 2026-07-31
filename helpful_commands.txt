@@ -13,6 +13,34 @@ npm run dev
 
 -----
 
+ADDIN - 3 steps to do before running Word Addin
+
+STEP 1 (involves 2 separate Terminals)
+
+cd C:\Users\Samsa\.vscode\coding\unicetra-neuro-adaptive
+cd addin
+npx serve -p 3000
+
+in a 2nd terminal:
+npx local-ssl-proxy --source 3001 --target 3000 --cert C:\Users\Samsa\.office-addin-dev-certs\localhost.crt --key C:\Users\Samsa\.office-addin-dev-certs\localhost.key
+
+STEP 2:
+
+in a separate 3rd terminal
+
+cd C:\Users\Samsa\.vscode\coding\unicetra-neuro-adaptive\backend
+.\.venv\Scripts\Activate.ps1
+
+uvicorn main:app --reload
+
+STEP 3:
+
+Keep Neo4j open and connected to database instance
+
+NOTE: manifests ADDIN folder - C:\Users\Samsa\.vscode\coding\unicetra-neuro-adaptive\OccoManifests
+
+-----
+
 How and Where to View the Telemetry Data
 As you interact with your app (e.g., toggling between Visual Trust Mode and Opaque RAG Mode, moving the Steerability Slider, running entropy audits, or checking PIG windows), every event is automatically serialized and pushed via HTTP POST to the backend telemetry log.
 
