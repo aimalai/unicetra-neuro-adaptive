@@ -418,10 +418,11 @@ def _insert_chunks_transaction(tx, nodes, doc_name):
     
     MERGE (s:Section {name: coalesce(row.section_header, "Document Preamble"), doc_id: $doc_name})
     MERGE (d)-[:HAS_SECTION]->(s)
-    
+
     MERGE (c:DocumentChunk {node_id: row.node_id})
     SET c.text_content = row.text_content,
         c.category = row.node_type,
+        c.depth = row.depth,
         c.embedding = row.embedding,
         c:Article
         

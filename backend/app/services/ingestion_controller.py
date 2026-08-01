@@ -24,12 +24,26 @@ class UniversalIngestionController:
         
         validated_elements = []
         for chunk in raw_chunks:
+            # Safely determine structural depth for document-agnostic REA
+            depth = chunk.get("depth")
+            if depth is None:
+                category = str(chunk.get("category", "")).lower()
+                if category in ["title", "document_title", "root"]:
+                    depth = 0
+                elif category in ["h1", "heading 1", "header", "abstract"]:
+                    depth = 1
+                elif category in ["h2", "heading 2", "sub_header"]:
+                    depth = 2
+                else:
+                    depth = 3 # Default to standard paragraph/leaf node
+                    
             # Construct payload mapping chunk data to schema constraints
             payload = {
                 "node_id": chunk.get("element_id", "node_unknown"),
                 "text_content": chunk.get("text", ""),
                 "node_type": node_type,
-                "section_header": chunk.get("section_header", "Document Preamble")
+                "section_header": chunk.get("section_header", "Document Preamble"),
+                "depth": depth  # Explicitly passed to support the REA Auditor
             }
             
             # Runtime validation ensuring enterprise structural compliance
