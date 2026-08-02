@@ -106,12 +106,17 @@ def search_graph_by_query(
         CALL db.index.vector.queryNodes('chunkEmbedding', $limit, $query_vector)
         YIELD node AS c, score
         OPTIONAL MATCH (s:Section)-[:HAS_CHUNK]->(c)
+        OPTIONAL MATCH (d:Document)-[:HAS_SECTION]->(s)
         OPTIONAL MATCH (c)-[:NEXT]->(next_c:DocumentChunk)
         OPTIONAL MATCH (prev_c:DocumentChunk)-[:NEXT]->(c)
-        WITH c, score, s, next_c, prev_c,
-             CASE WHEN 'Article' IN labels(c) THEN 0.9 
+        WITH c, score, s, d, next_c, prev_c,
+             CASE WHEN c.depth = 0 OR c.depth = 1 THEN 0.9 
+                  WHEN c.depth = 2 THEN 0.7 
+                  WHEN c.depth = 3 THEN 0.5 
+                  WHEN 'Article' IN labels(c) THEN 0.9 
                   WHEN 'Recital' IN labels(c) THEN 0.6 
-                  ELSE 0.5 END AS ontological_weight
+                  ELSE 0.5 END AS ontological_weight,
+             coalesce(d.authority_score, 1.0) AS provenance_weight
         RETURN c.node_id AS node_id,
                c.text_content AS text_content,
                labels(c) AS labels,
@@ -119,8 +124,9 @@ def search_graph_by_query(
                prev_c.text_content AS prev_content,
                next_c.text_content AS next_content,
                score,
-               ontological_weight
-        ORDER BY (score * ontological_weight) DESC
+               ontological_weight,
+               provenance_weight
+        ORDER BY (score * ontological_weight * provenance_weight) DESC
         """
         with driver.session() as session:
             records = session.run(
@@ -161,11 +167,12 @@ def search_graph_by_query(
                 node_item = {
                     "node_id": node_id,
                     "text_content": text_to_eval,
-                    "labels": r["labels"] or ["Article"],
+                    "labels": r["labels"] or ["Chunk"],
                     "section_header": r["section_header"],
                     "multi_hop_context": enriched_text.strip(),
                     "similarity_score": round(float(r["score"]), 4),
-                    "ontological_weight": float(r["ontological_weight"])
+                    "ontological_weight": float(r["ontological_weight"]),
+                    "provenance_weight": float(r["provenance_weight"])
                 }
                 raw_candidates.append(node_item)
 
@@ -257,11 +264,12 @@ def search_graph_by_query(
                         healed_item = {
                             "node_id": healed_id,
                             "text_content": healed_text,
-                            "labels": hr["labels"] or ["Recital"],
+                            "labels": hr["labels"] or ["Chunk"],
                             "section_header": hr["section_header"],
                             "multi_hop_context": f"[SELF-CORRECTION ROUTER INJECTED CONTEXT]:\n{healed_text}",
                             "similarity_score": 1.0,
-                            "ontological_weight": 0.9
+                            "ontological_weight": 0.9,
+                            "provenance_weight": 1.0
                         }
                         results.append(healed_item)
 
@@ -299,6 +307,7 @@ def _fallback_lexical_search_with_rea(
         MATCH (c:DocumentChunk)
         WHERE toLower(c.text_content) CONTAINS toLower($query_text)
         OPTIONAL MATCH (s:Section)-[:HAS_CHUNK]->(c)
+        OPTIONAL MATCH (d:Document)-[:HAS_SECTION]->(s)
         OPTIONAL MATCH (c)-[:NEXT]->(next_c:DocumentChunk)
         OPTIONAL MATCH (prev_c:DocumentChunk)-[:NEXT]->(c)
         RETURN c.node_id AS node_id,
@@ -306,7 +315,8 @@ def _fallback_lexical_search_with_rea(
                labels(c) AS labels,
                coalesce(s.name, "Document Preamble") AS section_header,
                prev_c.text_content AS prev_content,
-               next_c.text_content AS next_content
+               next_c.text_content AS next_content,
+               coalesce(d.authority_score, 1.0) AS provenance_weight
         LIMIT $limit
         """
         with driver.session() as session:
@@ -333,9 +343,12 @@ def _fallback_lexical_search_with_rea(
                 node_item = {
                     "node_id": node_id,
                     "text_content": r["text_content"],
-                    "labels": r["labels"] or ["Article"],
+                    "labels": r["labels"] or ["Chunk"], 
                     "section_header": r["section_header"],
-                    "multi_hop_context": enriched_text.strip()
+                    "multi_hop_context": enriched_text.strip(),
+                    "similarity_score": 1.0, 
+                    "ontological_weight": 0.5,
+                    "provenance_weight": float(r["provenance_weight"])
                 }
                 raw_candidates.append(node_item)
                 results.append(node_item)
@@ -393,9 +406,9 @@ def initialize_vector_index():
         print(f"Vector index init warning: {e}")
 
 
-def save_chunks_to_neo4j(validated_nodes: List[Dict[str, Any]], doc_name: str = "EU_AI_Act"):
+def save_chunks_to_neo4j(validated_nodes: List[Dict[str, Any]], doc_name: str = "default_doc", authority_score: float = 1.0):
     """
-    Persists validated nodes into Neo4j graph storage with vector embeddings.
+    Persists validated nodes into Neo4j graph storage with vector embeddings and inter-document provenance.
     """
     initialize_vector_index()
     
@@ -405,14 +418,15 @@ def save_chunks_to_neo4j(validated_nodes: List[Dict[str, Any]], doc_name: str = 
     try:
         driver = neo4j_connector.get_driver()
         with driver.session() as session:
-            session.execute_write(_insert_chunks_transaction, validated_nodes, doc_name)
+            session.execute_write(_insert_chunks_transaction, validated_nodes, doc_name, authority_score)
     except Exception as e:
         print(f"Neo4j persistence warning: {e}")
 
 
-def _insert_chunks_transaction(tx, nodes, doc_name):
+def _insert_chunks_transaction(tx, nodes, doc_name, authority_score):
     query = """
     MERGE (d:Document {id: $doc_name})
+    SET d.authority_score = $authority_score
     WITH d
     UNWIND $nodes AS row
     
@@ -423,12 +437,11 @@ def _insert_chunks_transaction(tx, nodes, doc_name):
     SET c.text_content = row.text_content,
         c.category = row.node_type,
         c.depth = row.depth,
-        c.embedding = row.embedding,
-        c:Article
+        c.embedding = row.embedding
         
     MERGE (s)-[:HAS_CHUNK]->(c)
     """
-    tx.run(query, nodes=nodes, doc_name=doc_name)
+    tx.run(query, nodes=nodes, doc_name=doc_name, authority_score=authority_score)
 
     seq_query = """
     UNWIND range(0, size($nodes)-2) AS idx

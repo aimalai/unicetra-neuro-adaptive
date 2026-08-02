@@ -1,0 +1,30 @@
+domain: "Universal Knowledge Graph Ontology"
+target_legislation: "Agnostic"
+
+# Defining standard expected properties to ensure Pydantic accepts them during validation
+base_properties:
+  - "node_id"
+  - "text_content"
+  - "node_type"
+  - "section_header"
+  - "depth"
+
+hierarchy:
+  root_node: "Document"
+  structural_container:
+    name: "Section"
+    description: "High-level structural boundaries, document titles, or major hierarchical chapters."
+  primary_provision:
+    name: "Chunk"
+    description: "Core informational payload, standard paragraphs, lists, or discrete data blocks."
+    min_degree_centrality: 0.75
+    properties_allowed: ["depth", "node_id", "text_content", "section_header"]
+  interpretive_context:
+    name: "Metadata"
+    description: "Supporting text, footnotes, or contextual preambles."
+    child_association: "Chunk"
+    properties_allowed: ["depth", "node_id", "text_content", "section_header"]
+  enforcement_standard:
+    name: "Alert_Trigger"
+    description: "Critical thresholds, warnings, or highly volatile statements requiring escalation."
+    required_parent: "Chunk"

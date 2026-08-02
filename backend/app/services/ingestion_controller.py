@@ -8,7 +8,8 @@ class UniversalIngestionController:
         self.parser = ingestion_parser
         self.schema = schema_loader
 
-    def process_and_validate_document(self, file_path: str, node_type: str = "Article", doc_name: str = "default_doc") -> Dict[str, Any]:
+    # Updated node_type to "Chunk" to match Universal Schema, and added authority_score parameter
+    def process_and_validate_document(self, file_path: str, node_type: str = "Chunk", doc_name: str = "default_doc", authority_score: float = 1.0) -> Dict[str, Any]:
         """
         Universal commercial ingestion pipeline:
         1. Parses raw files format-agnostically (PDF, Word, HTML), using doc_name to prevent ID collisions.
@@ -55,11 +56,13 @@ class UniversalIngestionController:
 
         # Step 3: Persist validated nodes into Neo4j graph storage & vector index
         if validated_elements:
-            save_chunks_to_neo4j(validated_elements, doc_name=doc_name)
+            # Pass the authority_score down to the graph service
+            save_chunks_to_neo4j(validated_elements, doc_name=doc_name, authority_score=authority_score)
 
         return {
             "status": "SUCCESS",
             "document": doc_name,
+            "authority_score_applied": authority_score,
             "domain": self.schema.schema_definition.get("domain"),
             "processed_chunks_count": len(validated_elements),
             "validated_nodes": validated_elements

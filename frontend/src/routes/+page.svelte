@@ -35,6 +35,7 @@
         text_content: string;
         kl_divergence: number;
         ontological_weight: number;
+        provenance_weight: number;
     }
 
     interface NeuralSIPReport {
@@ -550,7 +551,8 @@
                         node_id: pData.node_id,
                         text_content: pData.text_content,
                         kl_divergence: 0.99,
-                        ontological_weight: 2.0 
+                        ontological_weight: 2.0, 
+                        provenance_weight: 1.0 // Appended to fulfill new interface
                     }, ...compressionData.retained_nodes];
                     
                     compressionData.pruned_text = compressionData.retained_nodes.map(n => n.text_content).join('\n\n');

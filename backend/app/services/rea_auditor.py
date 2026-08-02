@@ -38,9 +38,13 @@ def decompose_chunks_to_sentences(candidates: List[Dict[str, Any]]) -> List[Dict
     sentence_nodes = []
     for c in candidates:
         text = c.get("text_content", "")
-        labels = c.get("labels", ["Paragraph"])
+        labels = c.get("labels", ["Chunk"])
         depth = c.get("depth", -1)
         chunk_id = c.get("node_id", "node")
+        
+        # INHERIT the weights calculated by the Cypher query
+        weight = c.get("ontological_weight", 0.5) 
+        prov_weight = c.get("provenance_weight", 1.0)
         
         # Split using standard regex for structural punctuation
         sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if len(s.strip()) > 10]
@@ -50,7 +54,9 @@ def decompose_chunks_to_sentences(candidates: List[Dict[str, Any]]) -> List[Dict
                 "node_id": f"{chunk_id}_s{idx}",
                 "text_content": s,
                 "labels": labels,
-                "depth": depth
+                "depth": depth,
+                "ontological_weight": weight,
+                "provenance_weight": prov_weight # Pass it downstream
             })
             
     return sentence_nodes if sentence_nodes else candidates
@@ -122,28 +128,6 @@ def calculate_jensen_shannon_divergence(p_vec: np.ndarray, q_vec: np.ndarray) ->
     return round(d_js, 4)
 
 # -----------------------------------------------------------------------
-# ONTOLOGICAL TOPOLOGY
-# -----------------------------------------------------------------------
-
-def calculate_ontological_weight(node_labels: List[str], structural_depth: int = -1) -> float:
-    """
-    Assigns Ontological Document Weighting (w).
-    Document-agnostic: relies on explicit tree depth or universal fallback labels.
-    """
-    if structural_depth == 0: return 0.9      
-    elif structural_depth == 1: return 0.7    
-    elif structural_depth == 2: return 0.5    
-    elif structural_depth >= 3: return 0.3    
-        
-    labels_upper = [str(l).upper() for l in node_labels]
-    if any(l in labels_upper for l in ["H1", "TITLE", "ARTICLE", "CHAPTER", "ROOT", "ABSTRACT"]):
-        return 0.9
-    elif any(l in labels_upper for l in ["H2", "SECTION", "RECITAL", "SUBHEADER", "METHODOLOGY"]):
-        return 0.5
-        
-    return 0.3 
-
-# -----------------------------------------------------------------------
 # MAIN EXECUTION PIPELINE
 # -----------------------------------------------------------------------
 
@@ -204,14 +188,13 @@ def execute_recursive_entropy_audit(
     # 3. RECURSIVE ENTROPY AUDIT (Information Density Pruning)
     for idx, node in enumerate(sentence_nodes):
         text = texts[idx]
-        labels = node.get("labels", [])
-        depth = node.get("depth", -1)
         
         node_token_length = len(text.split())
         raw_token_count += node_token_length
         
-        # Step A: Ontological Weighting
-        weight = calculate_ontological_weight(labels, depth)
+        # Step A: Ontological Weighting (Directly inherit from Neo4j instead of recalculating)
+        weight = node.get("ontological_weight", 0.5)
+        prov_weight = node.get("provenance_weight", 1.0)
         
         # Step B: Optional Vector Relevance Gate (using exact benchmark formula)
         if use_vector_gating:
@@ -242,7 +225,8 @@ def execute_recursive_entropy_audit(
                 "node_id": node.get("node_id"),
                 "text_content": text,
                 "kl_divergence": kl_div,
-                "ontological_weight": weight
+                "ontological_weight": weight,
+                "provenance_weight": prov_weight
             })
             baseline_context += " " + text
             pruned_token_count += node_token_length

@@ -13,6 +13,7 @@
         text_content: string;
         kl_divergence: number;
         ontological_weight: number;
+        provenance_weight: number;
     }
 
     interface NeuralSIPReport {
@@ -348,8 +349,12 @@
         <div class="flex items-center justify-between mb-2">
             <p class="text-xs text-gray-400 uppercase tracking-wider font-semibold">Verified Context (LLM Input)</p>
             {#if compressionData.retained_nodes && compressionData.retained_nodes.length > 0}
-                <span class="text-[11px] font-mono text-indigo-400">
-                    D_KL: {compressionData.retained_nodes[0].kl_divergence} | Weight (w): {compressionData.retained_nodes[0].ontological_weight}
+                <span class="text-[11px] font-mono text-indigo-400 flex items-center gap-2">
+                    <span>D_KL: {compressionData.retained_nodes[0].kl_divergence}</span>
+                    <span class="text-gray-700">|</span>
+                    <span title="Intra-document structural importance">Structural Weight: {compressionData.retained_nodes[0].ontological_weight}</span>
+                    <span class="text-gray-700">|</span>
+                    <span title="Inter-document global authority score">Source Authority: {compressionData.retained_nodes[0].provenance_weight}</span>
                 </span>
             {/if}
         </div>
