@@ -114,7 +114,8 @@ async def get_active_schemas():
 @api_router.post("/ingest/document", tags=["Universal Ingestion Pipeline"])
 async def ingest_enterprise_document(
     file: UploadFile = File(...),
-    node_type: str = Form("Article")
+    node_type: str = Form("Chunk"),
+    authority_score: float = Form(1.0)
 ):
     """
     Zero-Touch Commercial Ingestion: Accepts any enterprise document (PDF, DOCX, HTML),
@@ -128,8 +129,14 @@ async def ingest_enterprise_document(
     with open(file_path, "wb") as buffer:
         buffer.write(await file.read())
 
-    result = ingestion_controller.process_and_validate_document(str(file_path), node_type, doc_name)
+    result = ingestion_controller.process_and_validate_document(
+        file_path=str(file_path), 
+        node_type=node_type, 
+        doc_name=doc_name,
+        authority_score=authority_score
+    )
     return result
+
 
 @api_router.post("/compress", response_model=REACompressResult, tags=["Semantic Auditing"])
 async def run_context_compression(payload: REACompressPayload):

@@ -103,8 +103,9 @@ def search_graph_by_query(
         safe_hop_limit = int(hop_limit)
         
         cypher = f"""
-        CALL db.index.vector.queryNodes('chunkEmbedding', $limit, $query_vector)
+        CALL db.index.vector.queryNodes('chunkEmbedding', 50, $query_vector)
         YIELD node AS c, score
+        WHERE score >= 0.65
         OPTIONAL MATCH (s:Section)-[:HAS_CHUNK]->(c)
         OPTIONAL MATCH (d:Document)-[:HAS_SECTION]->(s)
         OPTIONAL MATCH (c)-[:NEXT]->(next_c:DocumentChunk)
@@ -127,6 +128,7 @@ def search_graph_by_query(
                ontological_weight,
                provenance_weight
         ORDER BY (score * ontological_weight * provenance_weight) DESC
+        LIMIT $limit
         """
         with driver.session() as session:
             records = session.run(
@@ -396,7 +398,7 @@ def initialize_vector_index():
     try:
         driver = neo4j_connector.get_driver()
         with driver.session() as session:
-            session.run("DROP INDEX chunkEmbedding IF EXISTS")
+            # We completely removed the DROP INDEX line here
             session.run("""
                 CREATE VECTOR INDEX chunkEmbedding IF NOT EXISTS
                 FOR (n:DocumentChunk) ON (n.embedding)
