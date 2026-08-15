@@ -56,4 +56,36 @@ This returns an endpoint response containing your total_records and an array of 
 Via the FastAPI Terminal:
 You can also check your backend console logs where Uvicorn records incoming requests to /api/v1/telemetry/log.
 
+MANAGER EVENT LISTENER PAGE - http://localhost:5173/telemetry
+
+### Step-by-Step Guide on How to Use the Telemetry Page
+
+1. **Monitor Macro Account Economics (Top Cards):**
+* View the total enterprise queries processed, the cumulative tokens averted vs. naive RAG, and the exact USD API cost savings calculated at $0.0025 per 1k input tokens.
+
+
+2. **Review Adversarial Shield Status (Middle Left):**
+* Use this panel to present the LGM/PIG compliance metrics during demonstrations, highlighting the simulated 0% leak rate for persona roleplay (Grandmother Exploit) and obfuscated prompts.
+
+
+3. **Inspect Live Friction Events (Middle Right):**
+* This panel captures semantic conflict logs in real-time as users interact with the main chat/search workbench.
+
+
+4. **Audit Granular User Actions (Bottom Table):**
+* Track every user interaction (e.g., `graph_search`, slider calibrations, provenance clicks). You can use the search bar to filter by session ID or use the dropdown to isolate specific event types.
+
+
+5. **Export Audit Data:**
+* Click the **"📥 Export Audit Dataset (.csv)"** button in the top right to download a clean CSV file of all recorded session logs for academic reporting and grant evaluation metrics.
+
+
+
+---
+
+### Which Parts Are the Placeholders?
+
+* **The LGM / PIG Adversarial Defense Card (Middle Left):** The numeric metrics shown here (e.g., `0% Leak`, `< 2% Leak`) are **front-end placeholders** derived from the LGM patent disclosure thresholds. Because the heavy LLM white-box weight-masking hooks (`FF2` contraction layer interception) are future-roadmap components, this panel currently serves as a compliance monitoring mockup for pitches and documentation.
+* **The Live WebSocket Stream (Middle Right):** This component listens for real-time socket events. If the socket connection isn't actively pushed from a live chat session, it sits in an idle waiting state.
+
 ----
