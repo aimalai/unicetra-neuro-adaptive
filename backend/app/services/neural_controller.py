@@ -1,15 +1,21 @@
 from typing import Dict, Any
 
+
 def predict_sufficient_information_point(token_length: int, shannon_entropy: float, confidence_threshold: float) -> Dict[str, Any]:
     """
-    Simulates the Neural Policy Network / RL Phase-Gate.
-    Predicts the Sufficient Information Point (SIP)—the exact moment the context window 
-    contains the minimum required data for high-fidelity reasoning, avoiding redundant compute.
+    Simulates the Neural Policy Network / RL Phase-Gate with dynamic scaling.
+    Predicts the Sufficient Information Point (SIP) based on true entropy variance.
     """
-    # Adaptive scaling: Higher confidence thresholds require deeper token inspection,
-    # while lower thresholds trigger an earlier information cutoff (early exit).
-    entropy_weight = min(max(shannon_entropy / 5.0, 0.4), 1.0)
-    optimal_cutoff_ratio = 0.5 + (0.4 * confidence_threshold * entropy_weight)
+    # Normalize entropy against a standard text baseline (typically between 3.0 and 8.0)
+    # This prevents the weight from immediately hitting the 1.0 hard ceiling on legal texts.
+    normalized_entropy = min(max((shannon_entropy - 3.0) / 4.0, 0.1), 1.0)
+    
+    # Dynamic calculation: Higher entropy (denser text) allows for a more aggressive early exit (lower cutoff ratio),
+    # while stricter confidence thresholds demand a larger retention window.
+    optimal_cutoff_ratio = 0.4 + (0.35 * (1.0 - normalized_entropy)) + (0.15 * confidence_threshold)
+    
+    # Ensure cutoff ratio stays within safe operational boundaries (e.g., retaining 45% to 85% of tokens)
+    optimal_cutoff_ratio = min(max(optimal_cutoff_ratio, 0.45), 0.85)
     
     sip_token_index = int(token_length * optimal_cutoff_ratio)
     

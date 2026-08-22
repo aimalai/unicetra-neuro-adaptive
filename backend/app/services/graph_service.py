@@ -89,11 +89,10 @@ def search_graph_by_query(
 ) -> Dict[str, Any]:
     """
     Unified Dual-Invention Retrieval Pipeline:
-    1. Performs Vector Similarity mapped against Ontological Weighting (w) using dynamic user hop limits.
-    2. Applies Adaptive Similarity Floor to reject out-of-domain garbage queries.
-    3. Runs Invention 1: REA (Recursive Entropy Audit) with optional boilerplate suppression.
-    4. Runs Invention 2: Ontological Critic mapped to user-tuned D_JS sensitivity.
-    5. Executes Automated Self-Correction Router to fill topological gaps if friction is found.
+    1. Performs Vector Similarity and retrieves structural/provenance weights.
+    2. Applies Adaptive Similarity Floor strictly on raw vector score (preventing multiplicative collapse).
+    3. Sorts and prioritizes passing candidates using Ontological Weighting (w) and Authority Scores.
+    4. Runs Invention 1 (REA) and Invention 2 (Ontological Critic).
     """
     try:
         query_vector = get_text_embedding(query)
@@ -101,10 +100,12 @@ def search_graph_by_query(
         
         safe_hop_limit = int(hop_limit)
         
+        # FIXED CYPHER: Order primarily by raw vector score to ensure complex queries pass, 
+        # then use ontological and provenance weights as secondary sorting boosters.
         cypher = f"""
         CALL db.index.vector.queryNodes('chunkEmbedding', 50, $query_vector)
         YIELD node AS c, score
-        WHERE score >= 0.65
+        WHERE score >= 0.60
         OPTIONAL MATCH (s:Section)-[:HAS_CHUNK]->(c)
         OPTIONAL MATCH (d:Document)-[:HAS_SECTION]->(s)
         OPTIONAL MATCH (c)-[:NEXT]->(next_c:DocumentChunk)
@@ -126,7 +127,7 @@ def search_graph_by_query(
                score,
                ontological_weight,
                provenance_weight
-        ORDER BY (score * ontological_weight * provenance_weight) DESC
+        ORDER BY score DESC, (ontological_weight * provenance_weight) DESC
         LIMIT $limit
         """
         with driver.session() as session:
@@ -176,12 +177,14 @@ def search_graph_by_query(
                 }
                 raw_candidates.append(node_item)
 
+            # FIXED FLOOR CHECK: Evaluates raw vector similarity safely against the floor threshold 
+            # without weighting penalties crushing multi-clause text queries.
             if raw_candidates:
                 top_score = raw_candidates[0]["similarity_score"]
-                if top_score < 0.68:
+                if top_score < 0.62:
                     raw_candidates = []
                 else:
-                    raw_candidates = [c for c in raw_candidates if c["similarity_score"] >= top_score * 0.85]
+                    raw_candidates = [c for c in raw_candidates if c["similarity_score"] >= top_score * 0.80]
 
             results = list(raw_candidates)
 
