@@ -74,6 +74,8 @@
         d_js_score: number;
         status: string;
         threshold_used: number;
+        target_text?: string;
+        parent_text_found?: string;
     }
 
     interface SearchMatch {
@@ -89,6 +91,8 @@
         d_js_score: number;
         target_node_id: string;
         timestamp?: string;
+        target_text?: string;
+        parent_text_found?: string;
     }
 
     // State management & Session Tracking for DREPT Telemetry
@@ -154,7 +158,7 @@
         errorMessage = null;
 
         try { 
-            const response = await fetch('https://5f1a-35-201-189-227.ngrok-free.app/api/v1/llm/generate', {
+            const response = await fetch('https://18f7-34-186-10-44.ngrok-free.app/api/v1/llm/generate', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -237,7 +241,6 @@
         }
 
         if (compressionData && compressionData.metrics) {
-            // FIX APPLIED HERE: Ensure dismissing false positives doesn't inflate verified tokens past original bounds
             const tokenDelta = isDismissed ? -4 : 8;
             const originalMax = compressionData.original_length || compressionData.compressed_length;
             const updatedCompressedLength = Math.min(originalMax, Math.max(10, compressionData.compressed_length + tokenDelta));
@@ -300,7 +303,6 @@
             
             const data = await response.json();
             
-            // Catch the Adaptive Floor trigger
             if (data.adaptive_floor_triggered) {
                 searchResults = [];
                 systemNotification = {
@@ -351,7 +353,9 @@
                     .map((probe: any) => ({
                         target_node_id: `${probe.node_pair[0]} ➔ ${probe.node_pair[1]}`,
                         d_js_score: probe.d_js_score,
-                        status: probe.status
+                        status: probe.status,
+                        target_text: probe.target_text || '',
+                        parent_text_found: probe.parent_text_found || ''
                     }));
                 
                 if (newAlerts.length > 0) {
@@ -363,7 +367,7 @@
                 query: searchQuery.trim(), 
                 match_count: searchResults.length, 
                 controls: { retrievalDepth, djsSensitivity, firewallPreset, boilerplateSuppression, maxChunks },
-                economics: data.rea_audit?.metrics || {} // Pass the metrics object to telemetry
+                economics: data.rea_audit?.metrics || {}
             });
         } catch (err: any) {
             errorMessage = err.message || 'Failed to search graph database.';
@@ -552,7 +556,7 @@
                         text_content: pData.text_content,
                         kl_divergence: 0.99,
                         ontological_weight: 2.0, 
-                        provenance_weight: 1.0 // Appended to fulfill new interface
+                        provenance_weight: 1.0
                     }, ...compressionData.retained_nodes];
                     
                     compressionData.pruned_text = compressionData.retained_nodes.map(n => n.text_content).join('\n\n');
@@ -626,7 +630,6 @@
         </div>
     </header>
 
-    <!-- Updated CommandDeck with Bound User Controls -->
     <CommandDeck 
         bind:searchQuery 
         bind:autoPilotActive 
@@ -673,7 +676,7 @@
                             Clear All Alerts
                         </button>
                     </div>
-                    <div class="flex flex-col gap-2">
+                    <div class="flex flex-col gap-3">
                         {#each contradictionAlerts as alert}
                             <div class="text-xs font-mono bg-red-900/30 p-3 rounded border border-red-800/40 flex flex-col gap-2">
                                 <div class="flex justify-between items-start">
@@ -684,6 +687,29 @@
                                     <span class="text-red-400 font-bold">{alert.status}</span>
                                 </div>
                                 
+                                <!-- NEW: Collapsible Text Preview for Informed Decision Making -->
+                                {#if alert.target_text || alert.parent_text_found}
+                                    <details class="bg-gray-950/60 p-2 rounded border border-red-900/40 text-[11px] text-gray-300">
+                                        <summary class="cursor-pointer text-indigo-400 font-semibold hover:text-indigo-300">
+                                            🔍 Inspect Clashing Text Snippets
+                                        </summary>
+                                        <div class="mt-2 flex flex-col gap-2 pt-2 border-t border-gray-800">
+                                            {#if alert.target_text}
+                                                <div>
+                                                    <span class="text-gray-500 uppercase tracking-wider text-[10px] block mb-1">Target Clause:</span>
+                                                    <p class="italic text-gray-300 bg-gray-900 p-2 rounded border border-gray-800">{alert.target_text}</p>
+                                                </div>
+                                            {/if}
+                                            {#if alert.parent_text_found}
+                                                <div>
+                                                    <span class="text-gray-500 uppercase tracking-wider text-[10px] block mb-1">Competing Baseline Clause:</span>
+                                                    <p class="italic text-gray-300 bg-gray-900 p-2 rounded border border-gray-800">{alert.parent_text_found}</p>
+                                                </div>
+                                            {/if}
+                                        </div>
+                                    </details>
+                                {/if}
+
                                 <div class="flex gap-2 mt-1 pt-2 border-t border-red-900/50">
                                     <span class="text-[10px] text-gray-500 uppercase flex items-center mr-2">RLHF Tuning:</span>
                                     <button 
@@ -810,11 +836,9 @@
                         />
                     </div>
                 </div>
-            <!-- Empty State / Garbage Query Feedback -->
             {:else if searchResults.length === 0}
                 <div class="max-w-4xl mx-auto flex flex-col items-center justify-center h-full text-center py-16 animate-fadeIn">
                     {#if systemNotification && systemNotification.message.includes("Query Rejected")}
-                        <!-- Out-of-Domain Feedback UI -->
                         <div class="h-16 w-16 mb-6 rounded-full border border-amber-700/50 bg-amber-950/30 flex items-center justify-center text-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
@@ -833,10 +857,9 @@
                             </ul>
                         </div>
                     {:else}
-                        <!-- Default Initial Empty State UI -->
                         <div class="h-16 w-16 mb-6 rounded-full border border-gray-700 bg-gray-900 flex items-center justify-center text-gray-500">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                             </svg>
                         </div>
                         <h3 class="text-xl font-medium text-gray-300 mb-2">Awaiting Graph Query</h3>

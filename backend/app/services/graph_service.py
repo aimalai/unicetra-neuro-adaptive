@@ -99,7 +99,6 @@ def search_graph_by_query(
         query_vector = get_text_embedding(query)
         driver = neo4j_connector.get_driver()
         
-        # Safely interpolate hop_limit as a clean integer string to avoid Neo4j syntax parameter errors
         safe_hop_limit = int(hop_limit)
         
         cypher = f"""
@@ -144,7 +143,6 @@ def search_graph_by_query(
                 if not node_id or node_id in seen_node_ids:
                     continue
 
-                # Robust Boilerplate & Fragment Suppression Filter Check
                 text_to_eval = r['text_content'] or ""
                 words = text_to_eval.split()
                 if boilerplate_suppression and (
@@ -153,7 +151,7 @@ def search_graph_by_query(
                     "Official Journal" in text_to_eval or 
                     "2024/" in text_to_eval
                 ):
-                    continue # Skip low-density boilerplate filler chunks and dangling fragments
+                    continue
 
                 seen_node_ids.add(node_id)
 
@@ -178,19 +176,15 @@ def search_graph_by_query(
                 }
                 raw_candidates.append(node_item)
 
-            # --- ADAPTIVE SIMILARITY FLOOR ---
             if raw_candidates:
                 top_score = raw_candidates[0]["similarity_score"]
-                # Hard Floor: Raised to 0.68 to properly catch out-of-domain queries using MiniLM embeddings.
                 if top_score < 0.68:
                     raw_candidates = []
                 else:
-                    # Relative Floor: Tightened to 0.85 (drop chunks if they drop more than 15% below the top match).
                     raw_candidates = [c for c in raw_candidates if c["similarity_score"] >= top_score * 0.85]
 
             results = list(raw_candidates)
 
-            # If the floor wiped out all candidates, return early to save REA compute
             if not results:
                 return {
                     "query": query,
@@ -201,16 +195,10 @@ def search_graph_by_query(
                     "adaptive_floor_triggered": True
                 }
 
-            # ---------------------------------------------------------
-            # INVENTION 1: Recursive Entropy Audit (REA)
-            # ---------------------------------------------------------
             rea_audit_result = execute_recursive_entropy_audit(raw_candidates)
             aggregate_text = " ".join([n["text_content"] for n in raw_candidates]) if raw_candidates else query
             baseline_entropy = calculate_shannon_entropy(aggregate_text)
 
-            # ---------------------------------------------------------
-            # INVENTION 2: Ontological Critic ($D_{JS}$ Probe with user threshold)
-            # ---------------------------------------------------------
             critic_audit_logs = []
             friction_detected = False
             conflicting_nodes = []
@@ -230,12 +218,11 @@ def search_graph_by_query(
                         "node_pair": (raw_candidates[i]["node_id"], raw_candidates[i+1]["node_id"]),
                         "d_js_score": djs_score,
                         "is_harmonious": is_harmonious,
-                        "status": "PASSED: Harmonious" if is_harmonious else "FAILED: Logical Contradiction Detected."
+                        "status": "PASSED: Harmonious" if is_harmonious else "FAILED: Logical Contradiction Detected.",
+                        "target_text": text_a,
+                        "parent_text_found": text_b
                     })
 
-            # ---------------------------------------------------------
-            # REQUIREMENT 3: Automated Self-Correction Router
-            # ---------------------------------------------------------
             if friction_detected and conflicting_nodes:
                 healing_cypher = """
                 UNWIND $node_ids AS nid
@@ -252,7 +239,6 @@ def search_graph_by_query(
                     healed_id = hr["node_id"]
                     healed_text = hr["text_content"] or ""
                     
-                    # Apply identical robust fragment/boilerplate filter to healing loop
                     healed_words = healed_text.split()
                     if boilerplate_suppression and (
                         len(healed_words) < 10 or 
@@ -302,7 +288,6 @@ def _fallback_lexical_search_with_rea(
     limit: int = 5, 
     d_js_threshold: float = 0.15
 ) -> Dict[str, Any]:
-    """Fallback search implementing basic REA without weighting or automated re-traversal."""
     try:
         driver = neo4j_connector.get_driver()
         cypher = """
@@ -370,7 +355,9 @@ def _fallback_lexical_search_with_rea(
                         "node_pair": (raw_candidates[i]["node_id"], raw_candidates[i+1]["node_id"]),
                         "d_js_score": djs_score,
                         "is_harmonious": is_harmonious,
-                        "status": "PASSED: Harmonious" if is_harmonious else "FAILED: Logical Contradiction Detected."
+                        "status": "PASSED: Harmonious" if is_harmonious else "FAILED: Logical Contradiction Detected.",
+                        "target_text": text_a,
+                        "parent_text_found": text_b
                     })
 
             return {
@@ -394,11 +381,9 @@ def _fallback_lexical_search_with_rea(
 
 
 def initialize_vector_index():
-    """Initializes a 384-dimensional vector index for SentenceTransformers."""
     try:
         driver = neo4j_connector.get_driver()
         with driver.session() as session:
-            # We completely removed the DROP INDEX line here
             session.run("""
                 CREATE VECTOR INDEX chunkEmbedding IF NOT EXISTS
                 FOR (n:DocumentChunk) ON (n.embedding)
@@ -409,9 +394,6 @@ def initialize_vector_index():
 
 
 def save_chunks_to_neo4j(validated_nodes: List[Dict[str, Any]], doc_name: str = "default_doc", authority_score: float = 1.0):
-    """
-    Persists validated nodes into Neo4j graph storage with vector embeddings and inter-document provenance.
-    """
     initialize_vector_index()
     
     for node in validated_nodes:
