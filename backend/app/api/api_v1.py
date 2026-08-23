@@ -100,6 +100,15 @@ class AuditVaultPayload(BaseModel):
     rea_metrics: Dict[str, Any]
     llm_response: str
 
+class ConversationalSearchPayload(BaseModel):
+    query: str
+    limit: int = 5
+    hop_limit: int = 2
+    d_js_threshold: float = 0.15
+    pig_preset: str = "balanced"
+    boilerplate_suppression: bool = True
+    chat_history: List[Dict[str, str]] = []
+
 AUDIT_VAULT_STORE = []
 
 @api_router.get("/status", tags=["System Health"])
@@ -240,6 +249,33 @@ async def search_graph(
         d_js_threshold=d_js_threshold, 
         pig_preset=pig_preset, 
         boilerplate_suppression=boilerplate_suppression
+    )
+    
+    if "rea_audit" in search_output and "metrics" in search_output["rea_audit"]:
+        metrics = search_output["rea_audit"]["metrics"]
+        final_token_length = metrics.get("pruned_tokens", 0)
+        tokens_averted = max(0, NAIVE_RAG_BENCHMARK_TOKENS - final_token_length)
+        cost_saved = (tokens_averted / 1000.0) * TOKEN_COST_PER_1K
+        
+        metrics["tokens_averted"] = tokens_averted
+        metrics["api_cost_saved_usd"] = cost_saved
+
+    return search_output
+
+@api_router.post("/graph/chat-search", tags=["Graph Retrieval"])
+async def conversational_search_graph(payload: ConversationalSearchPayload):
+    """
+    Conversational Graph Search Endpoint: Accepts user query and bounded chat history 
+    to synthesize standalone queries while enforcing the REA & Ontological Firewall.
+    """
+    search_output = search_graph_by_query(
+        query=payload.query, 
+        limit=payload.limit, 
+        hop_limit=payload.hop_limit, 
+        d_js_threshold=payload.d_js_threshold, 
+        pig_preset=payload.pig_preset, 
+        boilerplate_suppression=payload.boilerplate_suppression,
+        chat_history=payload.chat_history
     )
     
     if "rea_audit" in search_output and "metrics" in search_output["rea_audit"]:
@@ -736,7 +772,7 @@ async def get_connector_health_status():
     # Extract active queries mapped against ingested documents from telemetry logs
     queried_history = []
     for log in TELEMETRY_LOGS:
-        if log.get("event_type") == "graph_search":
+        if log.get("event_type") in ["graph_search", "conversational_turn"]:
             meta = log.get("metadata", {})
             queried_history.append({
                 "session_id": log.get("session_id"),

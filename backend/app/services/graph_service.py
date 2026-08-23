@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from neo4j.exceptions import Neo4jError, ServiceUnavailable
 from app.core.neo4j import neo4j_connector
 from sentence_transformers import SentenceTransformer
@@ -14,6 +14,26 @@ def get_text_embedding(text: str) -> List[float]:
     if not text.strip():
         return [0.0] * 384
     return embedding_model.encode(text).tolist()
+
+
+def synthesize_conversational_query(current_query: str, chat_history: List[Dict[str, str]]) -> str:
+    """
+    Synthesizes a standalone search query from the current message and limited chat history 
+    to resolve pronoun references or shorthand context before hitting the vector index.
+    """
+    if not chat_history:
+        return current_query
+    
+    # Extract the last 2 turns to maintain immediate conversational state without decay
+    recent_context = []
+    for turn in chat_history[-2:]:
+        role = turn.get("role", "user")
+        content = turn.get("content", "")
+        recent_context.append(f"{role}: {content}")
+    
+    context_str = " ".join(recent_context)
+    # Combine historical context with current query for comprehensive semantic grounding
+    return f"{context_str} Current User Question: {current_query}"
 
 
 def fetch_node_with_provenance(node_id: str) -> Dict[str, Any]:
@@ -85,23 +105,26 @@ def search_graph_by_query(
     hop_limit: int = 2,
     d_js_threshold: float = 0.15,
     pig_preset: str = "balanced",
-    boilerplate_suppression: bool = True
+    boilerplate_suppression: bool = True,
+    chat_history: Optional[List[Dict[str, str]]] = None
 ) -> Dict[str, Any]:
     """
     Unified Dual-Invention Retrieval Pipeline:
-    1. Performs Vector Similarity and retrieves structural/provenance weights.
-    2. Applies Adaptive Similarity Floor strictly on raw vector score (preventing multiplicative collapse).
-    3. Sorts and prioritizes passing candidates using Ontological Weighting (w) and Authority Scores.
-    4. Runs Invention 1 (REA) and Invention 2 (Ontological Critic).
+    1. Handles optional conversational history rewriting for multi-turn chat modes.
+    2. Performs Vector Similarity and retrieves structural/provenance weights.
+    3. Applies Adaptive Similarity Floor strictly on raw vector score.
+    4. Sorts passing candidates using Ontological Weighting (w) and Authority Scores.
+    5. Runs Invention 1 (REA) and Invention 2 (Ontological Critic).
     """
     try:
-        query_vector = get_text_embedding(query)
+        # If chat history is provided, synthesize standalone semantic query
+        effective_query = synthesize_conversational_query(query, chat_history) if chat_history else query
+        
+        query_vector = get_text_embedding(effective_query)
         driver = neo4j_connector.get_driver()
         
         safe_hop_limit = int(hop_limit)
         
-        # FIXED CYPHER: Order primarily by raw vector score to ensure complex queries pass, 
-        # then use ontological and provenance weights as secondary sorting boosters.
         cypher = f"""
         CALL db.index.vector.queryNodes('chunkEmbedding', 50, $query_vector)
         YIELD node AS c, score
@@ -177,8 +200,6 @@ def search_graph_by_query(
                 }
                 raw_candidates.append(node_item)
 
-            # FIXED FLOOR CHECK: Evaluates raw vector similarity safely against the floor threshold 
-            # without weighting penalties crushing multi-clause text queries.
             if raw_candidates:
                 top_score = raw_candidates[0]["similarity_score"]
                 if top_score < 0.62:
@@ -266,6 +287,7 @@ def search_graph_by_query(
 
             return {
                 "query": query,
+                "effective_query": effective_query,
                 "matches_count": len(results),
                 "matches": results,
                 "adaptive_floor_triggered": False,

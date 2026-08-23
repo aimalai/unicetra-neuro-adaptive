@@ -84,6 +84,10 @@
         exact_match: string;
         multi_hop_context: string;
         text_content?: string;
+        source_document?: string;
+        doc_id?: string;
+        source_name?: string;
+        document_title?: string;
     }
 
     interface AuditAlert {
@@ -95,12 +99,28 @@
         parent_text_found?: string;
     }
 
+    interface ChatTurn {
+        role: 'user' | 'assistant';
+        content: string;
+        matches_count?: number;
+        sources?: string[];
+    }
+
     // State management & Session Tracking for DREPT Telemetry
     let sessionId: string = 'session_' + Math.random().toString(36).substring(2, 9);
     let nodeId: string = '';
     let searchQuery: string = '';
     let searchResults: SearchMatch[] = [];
     let contradictionAlerts: AuditAlert[] = [];
+
+    // Dual Mode State (Single-Turn vs Conversational Chat)
+    let executionMode: 'single_turn' | 'conversational' = 'single_turn';
+    let chatHistory: ChatTurn[] = [];
+    const MAX_CHAT_TURNS = 4; // Capped to prevent "Lost in the Middle" token decay
+
+    // Single-Turn persistent state for query & sources
+    let lastSingleQuery: string = '';
+    let lastSingleSources: string[] = [];
 
     let nodeData: NodeProvenance | null = null;
     let compressionData: CompressionResult | null = null;
@@ -277,14 +297,17 @@
         isSearching = true;
         errorMessage = null;
 
-        contradictionAlerts = [];
-        compressionData = null;
-        llmResponseText = null; 
-        nodeData = null;
-        integrityData = null;
-        criticData = null;
-        systemNotification = null;
-        nodeId = ''; 
+        if (executionMode === 'single_turn') {
+            contradictionAlerts = [];
+            compressionData = null;
+            llmResponseText = null; 
+            nodeData = null;
+            integrityData = null;
+            criticData = null;
+            systemNotification = null;
+            nodeId = ''; 
+            lastSingleQuery = searchQuery.trim();
+        }
 
         scrollToTop();
 
@@ -298,11 +321,54 @@
                 boilerplate_suppression: boilerplateSuppression.toString()
             });
 
-            const response = await fetch(`http://127.0.0.1:8000/api/v1/graph/search?${params.toString()}`);
+            let fetchUrl = `http://127.0.0.1:8000/api/v1/graph/search?${params.toString()}`;
+
+            if (executionMode === 'conversational') {
+                chatHistory = [...chatHistory, { role: 'user', content: searchQuery.trim() }];
+                if (chatHistory.length > MAX_CHAT_TURNS) {
+                    chatHistory = chatHistory.slice(chatHistory.length - MAX_CHAT_TURNS);
+                }
+            }
+
+            const response = await fetch(fetchUrl);
             if (!response.ok) throw new Error(`Search failed with HTTP ${response.status}`);
             
             const data = await response.json();
             
+            // Unified dynamic source extraction for both modes
+            const extractedSources: string[] = data.matches 
+                ? Array.from(new Set(data.matches.map((m: any) => {
+                    const rawDoc = m.source_document || m.doc_id || m.source_name || m.document_title;
+                    if (rawDoc) return rawDoc;
+                    
+                    const nId = m.node_id || '';
+                    if (nId.includes('_')) {
+                        const parts = nId.split('_');
+                        parts.pop();
+                        return parts.join('_');
+                    }
+                    return null;
+                }).filter(Boolean)))
+                : [];
+
+            if (executionMode === 'single_turn') {
+                lastSingleSources = extractedSources;
+            }
+
+            if (executionMode === 'conversational' && data.matches) {
+                const assistantSummary = data.matches.map((m: any) => m.text_content).slice(0, 2).join(' ');
+                
+                chatHistory = [...chatHistory, { 
+                    role: 'assistant', 
+                    content: assistantSummary || 'Context verified by firewall.', 
+                    matches_count: data.matches.length,
+                    sources: extractedSources
+                }];
+                if (chatHistory.length > MAX_CHAT_TURNS) {
+                    chatHistory = chatHistory.slice(chatHistory.length - MAX_CHAT_TURNS);
+                }
+            }
+
             if (data.adaptive_floor_triggered) {
                 searchResults = [];
                 systemNotification = {
@@ -363,12 +429,16 @@
                 }
             }
 
-            logTelemetry('graph_search', { 
+            logTelemetry(executionMode === 'conversational' ? 'conversational_turn' : 'graph_search', { 
                 query: searchQuery.trim(), 
                 match_count: searchResults.length, 
+                execution_mode: executionMode,
+                chat_turns_count: chatHistory.length,
                 controls: { retrievalDepth, djsSensitivity, firewallPreset, boilerplateSuppression, maxChunks },
                 economics: data.rea_audit?.metrics || {}
             });
+
+            searchQuery = ''; 
         } catch (err: any) {
             errorMessage = err.message || 'Failed to search graph database.';
         } finally {
@@ -621,6 +691,23 @@
             </div>
             <h1 class="text-xl font-semibold tracking-wide text-gray-100">Occo <span class="text-indigo-400">AI</span></h1>
         </div>
+
+        <div class="flex items-center gap-2 bg-gray-950 px-3 py-1.5 rounded-lg border border-gray-800 text-xs font-mono">
+            <span class="text-gray-400">Mode:</span>
+            <button 
+                on:click={() => { executionMode = 'single_turn'; chatHistory = []; lastSingleQuery = ''; lastSingleSources = []; }}
+                class="px-2.5 py-1 rounded transition-all cursor-pointer {executionMode === 'single_turn' ? 'bg-indigo-600 text-white font-bold' : 'text-gray-400 hover:text-white'}"
+            >
+                Single-Turn
+            </button>
+            <button 
+                on:click={() => executionMode = 'conversational'}
+                class="px-2.5 py-1 rounded transition-all cursor-pointer {executionMode === 'conversational' ? 'bg-emerald-600 text-white font-bold shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'text-gray-400 hover:text-white'}"
+            >
+                Conversational
+            </button>
+        </div>
+
         <div class="flex items-center gap-2 text-sm">
             <span class="relative flex h-2.5 w-2.5">
               <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -646,6 +733,66 @@
     <div class="flex flex-1 overflow-hidden">
         <section bind:this={mainScrollContainer} class="flex-1 p-8 bg-gray-950 overflow-y-auto">
             
+            <!-- Conversational Mode History Transcript View -->
+            {#if executionMode === 'conversational' && chatHistory.length > 0}
+                <div class="max-w-4xl mx-auto mb-6 flex flex-col gap-3">
+                    <div class="flex items-center justify-between text-xs font-mono text-gray-400 pb-2 border-b border-gray-800">
+                        <span>Active Conversation Buffer ({chatHistory.length} / {MAX_CHAT_TURNS} Turns)</span>
+                        <button on:click={() => chatHistory = []} class="text-indigo-400 hover:underline cursor-pointer">Clear Buffer</button>
+                    </div>
+                    {#each chatHistory as turn, i}
+                        <div class="p-4 rounded-xl border font-mono text-xs {turn.role === 'user' ? 'bg-indigo-950/30 border-indigo-500/40 text-indigo-200 ml-6' : 'bg-gray-900 border-gray-800 text-gray-300 mr-6'}">
+                            <span class="text-[10px] uppercase font-bold tracking-wider block mb-1 {turn.role === 'user' ? 'text-indigo-400' : 'text-emerald-400'}">
+                                {turn.role === 'user' ? '👤 User Query Turn' : '🤖 Firewall-Verified Assistant Response'}
+                            </span>
+                            <p class="leading-relaxed">{turn.content}</p>
+                            
+                            <!-- Terse Source Document Provenance Badge List -->
+                            {#if turn.role === 'assistant'}
+                                <div class="mt-2.5 pt-2 border-t border-gray-800 flex items-center gap-2 flex-wrap text-[10px]">
+                                    <span class="text-gray-500 uppercase tracking-wider font-bold">Source Docs:</span>
+                                    {#if turn.sources && turn.sources.length > 0}
+                                        {#each turn.sources as src}
+                                            <span class="bg-gray-950 text-indigo-300 px-2 py-0.5 rounded border border-indigo-900/40">{src}</span>
+                                        {/each}
+                                    {:else}
+                                        <span class="bg-gray-950 text-indigo-300 px-2 py-0.5 rounded border border-indigo-900/40">Verified Knowledge Base</span>
+                                    {/if}
+                                </div>
+                            {/if}
+
+                            {#if turn.matches_count}
+                                <span class="text-[10px] text-gray-500 mt-2 block">Retrieved Matches: {turn.matches_count} chunks</span>
+                            {/if}
+                        </div>
+                    {/each}
+                </div>
+            {/if}
+
+            <!-- Single-Turn Query Banner View with Terse Source Document Badge List -->
+            {#if executionMode === 'single_turn' && lastSingleQuery}
+                <div class="max-w-4xl mx-auto mb-6">
+                    <div class="p-4 rounded-xl border font-mono text-xs bg-indigo-950/30 border-indigo-500/40 text-indigo-200">
+                        <span class="text-[10px] uppercase font-bold tracking-wider block mb-1 text-indigo-400">
+                            👤 User Query
+                        </span>
+                        <p class="leading-relaxed mb-3">{lastSingleQuery}</p>
+
+                        <!-- Terse Source Document Provenance Badge List -->
+                        <div class="pt-2 border-t border-indigo-900/40 flex items-center gap-2 flex-wrap text-[10px]">
+                            <span class="text-indigo-400/70 uppercase tracking-wider font-bold">Source Docs:</span>
+                            {#if lastSingleSources.length > 0}
+                                {#each lastSingleSources as src}
+                                    <span class="bg-gray-950 text-indigo-300 px-2 py-0.5 rounded border border-indigo-900/40">{src}</span>
+                                {/each}
+                            {:else}
+                                <span class="bg-gray-950 text-indigo-300 px-2 py-0.5 rounded border border-indigo-900/40">Verified Knowledge Base</span>
+                            {/if}
+                        </div>
+                    </div>
+                </div>
+            {/if}
+
             {#if systemNotification}
                 <div class="max-w-4xl mx-auto mb-6" transition:fade={{duration: 300}}>
                     <div class="bg-indigo-900/30 border border-indigo-500/50 rounded-lg p-3 flex items-center justify-between shadow-[0_0_15px_rgba(79,70,229,0.2)]">
@@ -687,7 +834,6 @@
                                     <span class="text-red-400 font-bold">{alert.status}</span>
                                 </div>
                                 
-                                <!-- NEW: Collapsible Text Preview for Informed Decision Making -->
                                 {#if alert.target_text || alert.parent_text_found}
                                     <details class="bg-gray-950/60 p-2 rounded border border-red-900/40 text-[11px] text-gray-300">
                                         <summary class="cursor-pointer text-indigo-400 font-semibold hover:text-indigo-300">

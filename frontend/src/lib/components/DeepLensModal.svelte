@@ -60,7 +60,28 @@
                     </div>
                 </div>
 
-                <!-- NEW: Sparse Autoencoder (SAE) Monosemantic Feature Prober -->
+                <!-- NEW: Conversational Mode & Sliding Window Diagnostics Card -->
+                <div class="bg-emerald-950/20 border border-emerald-900/40 rounded-xl p-5">
+                    <h3 class="text-xs font-bold text-emerald-300 uppercase tracking-wider mb-2 flex items-center justify-between">
+                        <span>💬 Dual-Mode & Conversational Buffer Diagnostics</span>
+                        <span class="text-[10px] bg-emerald-900/50 text-emerald-300 px-2 py-0.5 rounded border border-emerald-700/50">Active Sliding Window</span>
+                    </h3>
+                    <p class="text-xs text-gray-400 mb-3">
+                        Monitoring state separation between Single-Turn queries and Bounded Conversational memory (Max 4 Turns) to prevent token decay.
+                    </p>
+                    <div class="grid grid-cols-2 gap-4 font-mono text-xs">
+                        <div class="bg-gray-950 p-3 rounded-lg border border-gray-800">
+                            <span class="text-gray-500 block text-[10px] uppercase">Query Architecture</span>
+                            <span class="text-indigo-300 font-bold mt-1 block">Dynamic Middleware Query Synthesis</span>
+                        </div>
+                        <div class="bg-gray-950 p-3 rounded-lg border border-gray-800">
+                            <span class="text-gray-500 block text-[10px] uppercase">Buffer State Engine</span>
+                            <span class="text-emerald-400 font-bold mt-1 block">FIFO Rotation Active (Cap = 4)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sparse Autoencoder (SAE) Monosemantic Feature Prober -->
                 <div class="bg-purple-950/20 border border-purple-900/40 rounded-xl p-5">
                     <h3 class="text-xs font-bold text-purple-300 uppercase tracking-wider mb-2 flex items-center justify-between">
                         <span>🧠 Sparse Autoencoder (SAE) Latent Feature Prober (Subpoint 5)</span>
@@ -106,7 +127,7 @@
                 <!-- DREPT Telemetry Stream -->
                 <div class="bg-indigo-950/20 border border-indigo-900/40 rounded-xl p-5">
                     <h3 class="text-xs font-bold text-indigo-300 uppercase tracking-wider mb-3 flex items-center justify-between">
-                        <span>📊 DREPT Telemetry Stream & Session Audit (Subpoint 4)</span>
+                        <span>📊 DREPT Telemetry Stream & Session Inspection (Subpoint 4)</span>
                         <span class="h-2 w-2 rounded-full bg-emerald-500 animate-ping"></span>
                     </h3>
                     <div class="flex flex-col gap-2">

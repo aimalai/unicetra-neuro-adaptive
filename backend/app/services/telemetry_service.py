@@ -5,7 +5,7 @@ from app.core.neo4j import neo4j_connector
 
 class TelemetryEventPayload(BaseModel):
     session_id: str
-    event_type: str  # e.g., "slider_adjustment", "provenance_click", "ab_mode_switch", "likert_rating", "graph_search"
+    event_type: str  # e.g., "slider_adjustment", "provenance_click", "ab_mode_switch", "likert_rating", "graph_search", "conversational_turn"
     mode: str = "Visual_Trust_Mode"  # "Opaque_RAG_Mode" or "Visual_Trust_Mode"
     metadata: Dict[str, Any] = {}
     timestamp: Optional[str] = None
@@ -22,7 +22,7 @@ ACCOUNT_STATE = {
 
 def record_telemetry_event(payload: TelemetryEventPayload) -> Dict[str, Any]:
     """
-    Logs granular HCI metrics and updates Account-Level cumulative economic state.
+    Logs granular HCI metrics (including conversational turns) and updates Account-Level cumulative economic state.
     """
     event_record = {
         "session_id": payload.session_id,
@@ -33,8 +33,8 @@ def record_telemetry_event(payload: TelemetryEventPayload) -> Dict[str, Any]:
     }
     TELEMETRY_LOGS.append(event_record)
     
-    # Update Account Aggregates if this was a search/audit event
-    if payload.event_type == "graph_search" and "economics" in payload.metadata:
+    # Update Account Aggregates if this was a search/audit or conversational query event
+    if payload.event_type in ["graph_search", "conversational_turn"] and "economics" in payload.metadata:
         ACCOUNT_STATE["total_queries"] += 1
         ACCOUNT_STATE["total_tokens_averted"] += payload.metadata["economics"].get("tokens_averted", 0)
         ACCOUNT_STATE["total_cost_saved"] += payload.metadata["economics"].get("api_cost_saved_usd", 0.0)
@@ -90,7 +90,7 @@ def export_telemetry_dataset() -> Dict[str, Any]:
 
     queried_history = []
     for log in TELEMETRY_LOGS:
-        if log.get("event_type") == "graph_search":
+        if log.get("event_type") in ["graph_search", "conversational_turn"]:
             meta = log.get("metadata", {})
             queried_history.append({
                 "session_id": log.get("session_id"),
