@@ -33,6 +33,11 @@ cd C:\Users\Samsa\.vscode\coding\unicetra-neuro-adaptive\backend
 
 uvicorn main:app --reload
 
+Also open frontend in another terminal: 
+
+C:\Users\Samsa\.vscode\coding\unicetra-neuro-adaptive\frontend
+npm run dev
+
 STEP 3:
 
 Keep Neo4j open and connected to database instance
@@ -89,3 +94,7 @@ MANAGER EVENT LISTENER PAGE - http://localhost:5173/telemetry
 * **The Live WebSocket Stream (Middle Right):** This component listens for real-time socket events. If the socket connection isn't actively pushed from a live chat session, it sits in an idle waiting state.
 
 ----
+
+The main Occo AI application runs at your root route (http://localhost:5173/ or similar).
+
+The baseline study interface is now automatically live at http://localhost:5173/baseline.

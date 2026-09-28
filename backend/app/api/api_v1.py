@@ -797,3 +797,75 @@ async def get_connector_health_status():
             "status": "PENDING_ARCHITECTURE_APPROVAL"
         }
     }
+
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
+from app.services.graph_service import get_text_embedding
+from app.core.neo4j import neo4j_connector
+
+class BasicRAGPayload(BaseModel):
+    query: str
+    limit: int = 5
+
+class BasicRAGResult(BaseModel):
+    query: str
+    matches_count: int
+    retrieved_context: str
+    sources: List[str]
+    synthesized_answer: str
+
+@api_router.post("/baseline-rag/query", response_model=BasicRAGResult, tags=["Baseline RAG Study Control"])
+async def run_baseline_rag_query(payload: BasicRAGPayload):
+    """
+    Standard Black-Box RAG Baseline Endpoint for Thesis User Studies.
+    Performs standard vector similarity search without REA pruning, PIG gating, or D_JS critic probes.
+    """
+    query_vector = get_text_embedding(payload.query)
+    driver = neo4j_connector.get_driver()
+    
+    cypher = """
+    CALL db.index.vector.queryNodes('chunkEmbedding', $limit, $query_vector)
+    YIELD node AS c, score
+    WHERE score >= 0.50
+    OPTIONAL MATCH (s:Section)-[:HAS_CHUNK]->(c)
+    OPTIONAL MATCH (d:Document)-[:HAS_SECTION]->(s)
+    RETURN c.node_id AS node_id,
+           c.text_content AS text_content,
+           coalesce(d.id, 'document_source') AS source_doc
+    ORDER BY score DESC
+    LIMIT $limit
+    """
+    
+    retrieved_chunks = []
+    sources = set()
+    
+    try:
+        with driver.session() as session:
+            records = session.run(cypher, query_vector=query_vector, limit=payload.limit)
+            for r in records:
+                text = r["text_content"]
+                if text:
+                    retrieved_chunks.append(text)
+                    sources.add(r["source_doc"])
+    except Exception as e:
+        print(f"Baseline RAG Neo4j query error: {e}")
+        # Fallback response if DB connection is offline during testing
+        retrieved_chunks = ["Standard compliance baseline context unavailable."]
+        sources = ["Fallback_Source"]
+
+    combined_context = "\n\n".join(retrieved_chunks)
+    
+    # Standard black-box synthesis packaging
+    synthesized_answer = (
+        f"Based on the retrieved document context ({len(retrieved_chunks)} sections found):\n\n"
+        f"{combined_context}\n\n"
+        f"[Note: Standard RAG response generated without ontological filtering or entropy compression]."
+    )
+
+    return BasicRAGResult(
+        query=payload.query,
+        matches_count=len(retrieved_chunks),
+        retrieved_context=combined_context,
+        sources=list(sources),
+        synthesized_answer=synthesized_answer
+    )
