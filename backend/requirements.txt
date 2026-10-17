@@ -1,0 +1,16 @@
+fastapi
+python-multipart
+uvicorn
+neo4j
+sentence-transformers
+websockets
+scipy
+numpy
+python-dotenv
+pydantic
+unstructured
+python-docx
+fpdf2
+torch
+langdetect
+PyYAML
